@@ -4,6 +4,7 @@
     { g: "Mulai" },
     { f: "index.html", t: "Beranda", i: "🏠" },
     { f: "konsep.html", t: "Konsep Dasar", i: "💡" },
+    { f: "laptop.html", t: "Menjalankan di Laptop", i: "💻" },
     { f: "penggunaan.html", t: "Cara Memakai", i: "🚀" },
     { g: "Belajar AWS dari Nol" },
     { f: "belajar.html", t: "Peta Belajar", i: "🧭" },

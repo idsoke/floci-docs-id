@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Menjalankan di Laptop — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Mulai › Menjalankan di Laptop</div>
+<h1>💻 Menjalankan Floci di Laptop</h1>
+<p class="lead">Panduan lengkap dari laptop kosong sampai Floci berjalan setiap hari: kebutuhan sistem, langkah per sistem operasi,
+Docker Compose, menyimpan data, update, dan cara mengatasi masalah.</p>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Floci dikemas sebagai <b>container Docker</b>, semacam "kotak bekal" yang sudah berisi semua yang dibutuhkan program.
+Anda cukup memasang <b>Docker</b> (lemari tempat kotak bekal disimpan dan dipanaskan), lalu menyuruh Docker menjalankan kotak Floci.
+Tidak perlu memasang Java, database, atau apa pun lainnya.</p>
+<p>Setelah menyala, Floci "membuka loket" di alamat <code>http://localhost:4566</code>. Semua program di laptop Anda, seperti AWS CLI,
+kode Python, atau Terraform, tinggal diarahkan ke alamat itu.</p></div>
+
+<h2>Kebutuhan sistem</h2>
+<div class="table-wrap"><table>
+<tr><th>Komponen</th><th>Minimal</th><th>Disarankan</th><th>Catatan</th></tr>
+<tr><td><b>Sistem operasi</b></td><td>Windows 10 22H2 / 11, macOS 13+, Linux modern</td><td>Windows 11 + WSL2, macOS 14+</td><td>Windows wajib memakai WSL2 untuk Docker Desktop</td></tr>
+<tr><td><b>Prosesor</b></td><td>x86_64 atau ARM64</td><td>4 core</td><td>Apple Silicon (M1–M4) didukung; Lambda otomatis memakai arsitektur laptop</td></tr>
+<tr><td><b>RAM</b></td><td>8 GB</td><td>16 GB</td><td>Floci sendiri hanya ±13 MiB; yang besar adalah Docker Desktop dan container Lambda/RDS</td></tr>
+<tr><td><b>Disk kosong</b></td><td>5 GB</td><td>15 GB</td><td>Image Floci kecil, tetapi image runtime Lambda ±200 MB per bahasa, PostgreSQL/Redis juga butuh ruang</td></tr>
+<tr><td><b>Internet</b></td><td>Saat pemasangan</td><td>—</td><td>Setelah image terunduh, Floci bisa dipakai <b>offline</b></td></tr>
+</table></div>
+
+<h2>Gambaran: apa saja yang berjalan di laptop</h2>
+<div id="anim"></div>
+
+<h2>Pilih cara menjalankan</h2>
+<div class="table-wrap"><table>
+<tr><th>Cara</th><th>Cocok untuk</th><th>Kelebihan</th><th>Kekurangan</th></tr>
+<tr><td><b>A. Docker Compose</b> ⭐</td><td>Pemakaian sehari-hari</td><td>Konfigurasi tersimpan di file, satu perintah untuk nyala/mati, mudah menyimpan data</td><td>Perlu membuat satu file YAML</td></tr>
+<tr><td><b>B. <code>docker run</code></b></td><td>Coba cepat</td><td>Satu baris perintah</td><td>Opsi panjang harus diketik ulang</td></tr>
+<tr><td><b>C. Binary native</b></td><td>Laptop tanpa Docker</td><td>Tanpa Docker, sangat ringan</td><td>Lambda, RDS, dan layanan berbasis container tidak bisa jalan; tidak semua rilis menyertakan binary</td></tr>
+<tr><td><b>D. Dari kode sumber</b></td><td>Kontributor Floci</td><td>Bisa mengubah kode Floci</td><td>Butuh Java 25 + Maven, build beberapa menit</td></tr>
+</table></div>
+
+<h2>Langkah 1: Pasang Docker dan AWS CLI</h2>
+<div data-tabs>
+<div class="tabs"><button class="on">🪟 Windows</button><button>🍎 macOS</button><button>🐧 Linux</button></div>
+
+<div class="tab-panel on">
+<ol>
+  <li><b>Aktifkan WSL2.</b> Buka <b>PowerShell sebagai Administrator</b>, jalankan perintah di bawah, lalu restart laptop. Setelah restart, jendela Ubuntu terbuka; buat username dan password Linux.
+<pre><code>wsl --install -d Ubuntu</code></pre></li>
+  <li><b>Pasang Docker Desktop</b> dari <a href="https://www.docker.com/products/docker-desktop/" target="_blank" rel="noopener">docker.com</a>.
+  Saat instalasi, centang <i>Use WSL 2 instead of Hyper-V</i>.</li>
+  <li>Buka Docker Desktop → <b>Settings → Resources → WSL integration</b> → aktifkan untuk <b>Ubuntu</b> → <i>Apply &amp; restart</i>.</li>
+  <li>Buka terminal <b>Ubuntu</b> (dari Start menu atau Windows Terminal). Mulai sekarang semua perintah dijalankan di sini:
+<pre><code>docker version            # bagian "Server" harus muncul
+sudo apt update &amp;&amp; sudo apt install -y unzip python3-venv
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+unzip -q awscliv2.zip &amp;&amp; sudo ./aws/install
+aws --version</code></pre></li>
+</ol>
+<div class="note tip"><strong>Kenapa WSL?</strong> Docker di Windows sebenarnya berjalan di dalam Linux kecil (WSL2). Bekerja langsung di terminal Ubuntu
+membuat perintah di dokumentasi ini bisa dipakai apa adanya, dan akses file jauh lebih cepat. Simpan proyek di folder Linux
+(<code>~/proyek</code>), bukan di <code>/mnt/c/...</code>.</div>
+</div>
+
+<div class="tab-panel">
+<ol>
+  <li>Pasang salah satu: <b>Docker Desktop</b> (<a href="https://www.docker.com/products/docker-desktop/" target="_blank" rel="noopener">docker.com</a>),
+  <b>OrbStack</b> (lebih ringan), atau <b>Colima</b> (gratis, lewat Homebrew). Ketiganya menyediakan perintah <code>docker</code>.</li>
+  <li>Pasang AWS CLI dan cek:
+<pre><code># dengan Homebrew
+brew install awscli
+# atau installer resmi
+curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o AWSCLIV2.pkg &amp;&amp; sudo installer -pkg AWSCLIV2.pkg -target /
+
+docker version
+aws --version</code></pre></li>
+  <li>Colima saja: nyalakan dulu dengan <code>colima start --cpu 4 --memory 6</code>.</li>
+</ol>
+<p>Di Apple Silicon, Floci dan fungsi Lambda otomatis memakai image ARM64, jadi tidak ada emulasi yang lambat.</p>
+</div>
+
+<div class="tab-panel">
+<pre><code># Docker Engine (skrip resmi Docker)
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER       # agar tidak perlu sudo; logout lalu login lagi
+docker version
+
+# AWS CLI v2 (ganti x86_64 dengan aarch64 untuk ARM)
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+unzip -q awscliv2.zip &amp;&amp; sudo ./aws/install
+aws --version</code></pre>
+<p>Docker Desktop for Linux juga bisa dipakai, tetapi Docker Engine biasa lebih ringan.</p>
+</div>
+</div>
+
+<h2>Langkah 2: Jalankan Floci</h2>
+<div data-tabs>
+<div class="tabs"><button class="on">A. Docker Compose ⭐</button><button>B. docker run</button><button>C. Binary native</button><button>D. Dari kode sumber</button></div>
+
+<div class="tab-panel on">
+<p>Buat folder kerja dan file <code>compose.yaml</code>:</p>
+<pre><code>mkdir -p ~/floci &amp;&amp; cd ~/floci
+cat &gt; compose.yaml &lt;&lt;'EOF'
+services:
+  floci:
+    image: floci/floci:latest
+    container_name: floci
+    ports:
+      - "127.0.0.1:4566:4566"          # hanya bisa diakses dari laptop ini
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock   # untuk Lambda, RDS, dll.
+      - floci-data:/app/data                         # tempat data disimpan
+    user: root                         # agar boleh memakai docker.sock
+    environment:
+      FLOCI_STORAGE_MODE: hybrid       # data tetap ada setelah restart
+      FLOCI_STORAGE_PERSISTENT_PATH: /app/data
+    restart: unless-stopped            # ikut menyala saat Docker menyala
+
+volumes:
+  floci-data:
+EOF
+
+docker compose up -d
+docker compose logs -f floci         # Ctrl+C untuk berhenti melihat log</code></pre>
+<div class="out"><pre><code>[+] Running 2/2
+ ✔ Volume "floci_floci-data"  Created
+ ✔ Container floci            Started
+…
+IAM:       policy enforcement disabled (…)
+Ready.</code></pre></div>
+<div class="note"><strong>Kenapa tanpa <code>FLOCI_HOSTNAME</code>?</strong> Contoh Compose di dokumentasi resmi memakai
+<code>FLOCI_HOSTNAME: floci</code>. Itu berguna jika aplikasi Anda juga berjalan sebagai service di Compose yang sama. Efek sampingnya,
+alamat antrean SQS dikembalikan sebagai <code>http://floci:4566/…</code>, yang <b>tidak bisa dibuka dari terminal laptop</b>.
+Untuk belajar dan memakai CLI di laptop, biarkan setelan itu kosong.</div>
+</div>
+
+<div class="tab-panel">
+<pre><code>docker run -d --name floci \
+  -p 127.0.0.1:4566:4566 \
+  -v /var/run/docker.sock:/var/run/docker.sock -u root \
+  -v floci-data:/app/data \
+  -e FLOCI_STORAGE_MODE=hybrid -e FLOCI_STORAGE_PERSISTENT_PATH=/app/data \
+  --restart unless-stopped \
+  floci/floci:latest</code></pre>
+<p>Versi paling sederhana (data hilang saat container dihapus, Lambda tidak tersedia): <code>docker run --rm -p 4566:4566 floci/floci:latest</code>.</p>
+</div>
+
+<div class="tab-panel">
+<p>Jika halaman <a href="https://github.com/floci-io/floci/releases" target="_blank" rel="noopener">Releases</a> menyertakan file
+<code>floci-aws-&lt;os&gt;-&lt;arch&gt;</code>, Floci bisa dijalankan tanpa Docker:</p>
+<pre><code>VERSION=x.y.z                       # versi rilis yang memuat binary
+ASSET=floci-aws-linux-amd64         # darwin-arm64 untuk Mac M-series, windows-amd64.exe untuk Windows
+curl -fsSLO "https://github.com/floci-io/floci/releases/download/$VERSION/$ASSET"
+install -m 755 "$ASSET" ~/.local/bin/floci-aws
+FLOCI_STORAGE_MODE=persistent floci-aws</code></pre>
+<p>Binary mendengarkan di <code>127.0.0.1:4566</code>. Data persisten disimpan di <code>~/.local/share/floci-aws</code> (Linux),
+<code>~/Library/Application Support/floci-aws</code> (macOS), atau <code>%LOCALAPPDATA%\floci-aws</code> (Windows).
+Tanpa Docker, layanan berbasis container (Lambda, ECS, RDS, ElastiCache, dll.) tidak bisa menjalankan container.
+Kalau rilis yang Anda pilih tidak memuat binary, pakai cara A atau B.</p>
+</div>
+
+<div class="tab-panel">
+<pre><code># butuh Java 25+ dan Maven 3.9+
+git clone https://github.com/floci-io/floci.git
+cd floci
+./mvnw quarkus:dev                   # mode pengembangan dengan hot reload di port 4566
+
+# atau build JAR lalu jalankan
+./mvnw clean package -DskipTests
+java -jar target/quarkus-app/quarkus-run.jar</code></pre>
+<p>Lihat <a href="kontribusi.html">Panduan Kontributor</a> untuk alur pengembangan lengkap.</p>
+</div>
+</div>
+
+<h2>Langkah 3: Hubungkan AWS CLI dan cek</h2>
+<pre><code>cat &gt;&gt; ~/.bashrc &lt;&lt;'EOF'
+# --- Floci ---
+export AWS_ENDPOINT_URL=http://localhost:4566
+export AWS_DEFAULT_REGION=us-east-1
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+EOF
+source ~/.bashrc
+
+curl -s http://localhost:4566/_floci/health | head -c 200; echo
+aws sts get-caller-identity
+aws s3 mb s3://tes-laptop &amp;&amp; aws s3 ls</code></pre>
+<div class="out"><pre><code>{"services":{"s3":"running", … },"edition":"community","version":"…"}
+{
+    "UserId": "000000000000",
+    "Account": "000000000000",
+    "Arn": "arn:aws:iam::000000000000:root"
+}
+make_bucket: tes-laptop
+2026-11-01 10:00:00 tes-laptop</code></pre></div>
+<p>Di macOS dengan zsh, tulis ke <code>~/.zshrc</code>. Di PowerShell, lihat tab PowerShell di <a href="belajar-0.html">Modul 0</a>.</p>
+<div class="note tip"><strong>Konsol web:</strong> buka <a href="http://localhost:4566/_floci/ui" target="_blank" rel="noopener">http://localhost:4566/_floci/ui</a>
+di browser untuk melihat bucket, antrean, dan tabel secara visual. Pembukaan pertama mengunduh dan menyalakan container konsol, jadi tunggu sebentar.
+Fitur ini membutuhkan <code>docker.sock</code>.</div>
+
+<h2>Menyimpan data: pilih mode storage</h2>
+<div class="table-wrap"><table>
+<tr><th><code>FLOCI_STORAGE_MODE</code></th><th>Data setelah restart</th><th>Kapan dipakai</th></tr>
+<tr><td><code>memory</code> (default image)</td><td>❌ Hilang</td><td>Tes otomatis, latihan yang ingin selalu mulai bersih</td></tr>
+<tr><td><code>hybrid</code> ⭐</td><td>✅ Ada (disalin ke disk berkala)</td><td>Pemakaian sehari-hari di laptop</td></tr>
+<tr><td><code>persistent</code></td><td>✅ Ada (ditulis langsung ke disk)</td><td>Tidak boleh kehilangan perubahan terakhir</td></tr>
+<tr><td><code>wal</code></td><td>✅ Ada (log + snapshot)</td><td>Banyak penulisan, ingin aman dan cepat</td></tr>
+</table></div>
+<p>Data disimpan di volume Docker <code>floci-data</code>. Selama volume itu tidak dihapus, data tetap ada walau container dibuat ulang.
+Detail cara kerjanya ada di halaman <a href="storage.html">Penyimpanan Data</a>.</p>
+
+<h2>Pemakaian sehari-hari</h2>
+<div class="table-wrap"><table>
+<tr><th>Tujuan</th><th>Docker Compose (di folder <code>~/floci</code>)</th><th>docker run</th></tr>
+<tr><td>Menyalakan</td><td><code>docker compose up -d</code></td><td><code>docker start floci</code></td></tr>
+<tr><td>Mematikan (data aman)</td><td><code>docker compose stop</code></td><td><code>docker stop floci</code></td></tr>
+<tr><td>Status</td><td><code>docker compose ps</code></td><td><code>docker ps</code></td></tr>
+<tr><td>Melihat log</td><td><code>docker compose logs -f</code></td><td><code>docker logs -f floci</code></td></tr>
+<tr><td>Update ke versi terbaru</td><td><code>docker compose pull &amp;&amp; docker compose up -d</code></td><td><code>docker pull floci/floci:latest</code>, lalu hapus dan jalankan ulang container</td></tr>
+<tr><td>Hapus container (data aman)</td><td><code>docker compose down</code></td><td><code>docker rm -f floci</code></td></tr>
+<tr><td><b>Reset total</b> (data hilang)</td><td><code>docker compose down -v</code></td><td><code>docker rm -f floci &amp;&amp; docker volume rm floci-data</code></td></tr>
+</table></div>
+<ul>
+  <li><b>Menyala otomatis saat laptop dinyalakan:</b> <code>restart: unless-stopped</code> sudah diset. Aktifkan juga
+  <i>Docker Desktop → Settings → General → Start Docker Desktop when you sign in</i>.</li>
+  <li><b>Membersihkan container Lambda yang tertinggal</b> setelah banyak latihan: <code>docker ps -a</code>, lalu <code>docker container prune</code>.</li>
+  <li><b>Membebaskan disk</b> dari image lama: <code>docker image prune</code> (aman) atau <code>docker system prune</code> (lebih agresif).</li>
+  <li><b>Mengunci versi</b> agar tidak berubah tiba-tiba: ganti <code>floci/floci:latest</code> dengan nomor versi, misalnya <code>floci/floci:2.4.0</code>.</li>
+</ul>
+
+<h2>Hemat RAM di Windows (WSL2)</h2>
+<p>WSL2 bisa memakai hingga setengah RAM laptop. Batasi lewat file <code>C:\Users\&lt;nama&gt;\.wslconfig</code>:</p>
+<pre><code>[wsl2]
+memory=6GB
+processors=4
+swap=4GB</code></pre>
+<p>Lalu jalankan <code>wsl --shutdown</code> di PowerShell dan buka lagi Docker Desktop. Di macOS, atur batas RAM di pengaturan
+Docker Desktop/OrbStack, atau lewat <code>colima start --memory 6</code>.</p>
+
+<h2>Membuka situs dokumentasi ini secara offline</h2>
+<p>Seluruh dokumentasi ini adalah file HTML biasa tanpa server.</p>
+<pre><code>git clone https://github.com/idsoke/floci-docs-id.git
+cd floci-docs-id
+# cara 1: klik dua kali index.html
+# cara 2: jalankan server kecil, lalu buka http://localhost:8000
+python3 -m http.server 8000</code></pre>
+<p>Versi online: <a href="https://idsoke.github.io/floci-docs-id/" target="_blank" rel="noopener">idsoke.github.io/floci-docs-id</a>.</p>
+
+<h2>Mengatasi masalah</h2>
+<div class="table-wrap"><table>
+<tr><th>Gejala</th><th>Penyebab</th><th>Solusi</th></tr>
+<tr><td><code>Cannot connect to the Docker daemon</code></td><td>Docker belum menyala</td><td>Buka Docker Desktop dan tunggu ikon paus berhenti beranimasi. Di Linux: <code>sudo systemctl start docker</code>.</td></tr>
+<tr><td><code>docker: command not found</code> di Ubuntu WSL</td><td>WSL integration belum aktif</td><td>Docker Desktop → Settings → Resources → WSL integration → aktifkan Ubuntu</td></tr>
+<tr><td><code>port is already allocated</code> / <code>address already in use</code></td><td>Port 4566 dipakai program lain, sering LocalStack</td><td><code>docker ps</code> untuk mencarinya, lalu hentikan. Atau ganti port: <code>"127.0.0.1:4567:4566"</code> dan <code>AWS_ENDPOINT_URL=http://localhost:4567</code>.</td></tr>
+<tr><td><code>Could not connect to the endpoint URL</code></td><td>Floci belum siap atau mati</td><td><code>docker compose ps</code>, lalu cek log</td></tr>
+<tr><td><code>permission denied … docker.sock</code></td><td>User Linux belum masuk grup docker, atau container tidak berjalan sebagai root</td><td><code>sudo usermod -aG docker $USER</code> lalu login ulang; pastikan <code>user: root</code> di compose</td></tr>
+<tr><td>Lambda gagal atau sangat lama saat invoke pertama</td><td>Mengunduh image runtime (±200 MB), atau <code>docker.sock</code> tidak di-mount</td><td>Tunggu unduhan selesai, lalu periksa bagian <code>volumes</code></td></tr>
+<tr><td><code>failed to resolve reference "docker.io/floci/floci…"</code> / <code>connection reset</code></td><td>Koneksi ke Docker Hub terganggu (jaringan kantor/kampus, DNS, atau proxy)</td><td>Coba jaringan lain atau hotspot, ulangi <code>docker pull</code>, atur proxy di Docker Desktop → Settings → Resources → Proxies</td></tr>
+<tr><td>Data hilang setelah restart</td><td>Mode masih <code>memory</code>, atau volume ikut terhapus (<code>down -v</code>)</td><td>Set <code>FLOCI_STORAGE_MODE: hybrid</code> dan pakai volume</td></tr>
+<tr><td>Alamat SQS berbentuk <code>http://floci:4566/…</code> dan tidak bisa diakses</td><td><code>FLOCI_HOSTNAME</code> diset</td><td>Hapus <code>FLOCI_HOSTNAME</code> jika memakai CLI dari laptop</td></tr>
+<tr><td>Laptop terasa berat</td><td>Banyak container Lambda/RDS yang masih menyala, atau WSL memakai RAM besar</td><td><code>docker container prune</code>, atur <code>.wslconfig</code></td></tr>
+</table></div>
+
+<h2>Checklist: siap dipakai</h2>
+<ul class="goals">
+  <li><code>docker version</code> menampilkan bagian Client dan Server.</li>
+  <li><code>docker compose ps</code> menampilkan <code>floci</code> berstatus <i>running</i>.</li>
+  <li><code>aws sts get-caller-identity</code> menampilkan akun <code>000000000000</code>.</li>
+  <li>Bucket yang dibuat masih ada setelah <code>docker compose restart</code> (mode hybrid).</li>
+</ul>
+<div class="note tip"><strong>Langkah berikutnya:</strong> mulai kursus <a href="belajar.html">Belajar AWS dari Nol</a>, atau lihat
+<a href="penggunaan.html">Cara Memakai</a> untuk contoh SDK, Terraform, dan Testcontainers.</div>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/flow.js"></script>
+<script src="assets/learn.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("anim"), {
+  title: "Laptop Windows: dari terminal sampai container",
+  width: 960, height: 360,
+  zones: [
+    { x: 4, y: 4, w: 952, h: 352, label: "Laptop (Windows / macOS / Linux)" },
+    { x: 250, y: 34, w: 696, h: 312, label: "WSL2 / VM Linux kecil (dikelola Docker Desktop)" },
+    { x: 470, y: 64, w: 466, h: 272, label: "Docker Engine" }
+  ],
+  nodes: [
+    { id: "you", x: 24, y: 70, w: 190, h: 60, label: "Terminal / IDE", sub: "aws · python · terraform", kind: "client", icon: "⌨️" },
+    { id: "browser", x: 24, y: 250, w: 190, h: 60, label: "Browser", sub: "konsol /_floci/ui", kind: "client", icon: "🌐" },
+    { id: "port", x: 280, y: 160, w: 165, h: 60, label: "localhost:4566", sub: "port diteruskan", kind: "filter", icon: "🔌" },
+    { id: "floci", x: 500, y: 150, w: 190, h: 80, label: "Container Floci", sub: "semua layanan AWS", kind: "svc", icon: "☁️" },
+    { id: "vol", x: 500, y: 266, w: 190, h: 52, label: "Volume floci-data", sub: "/app/data", kind: "store", icon: "💾" },
+    { id: "lam", x: 730, y: 90, w: 190, h: 56, label: "Container Lambda", sub: "python3.12 …", kind: "ext", icon: "λ" },
+    { id: "db", x: 730, y: 180, w: 190, h: 56, label: "Container RDS / Redis", sub: "jika dipakai", kind: "ext", icon: "🐘" },
+    { id: "ui", x: 730, y: 266, w: 190, h: 52, label: "Container konsol", sub: "dibuat saat dibuka", kind: "ext", icon: "🖥️" }
+  ],
+  steps: [
+    { from: "you", to: "port", tag: "aws s3 ls", title: "Perintah dikirim ke localhost", text: "AWS CLI di Windows/WSL mengirim request ke <code>http://localhost:4566</code> karena <code>AWS_ENDPOINT_URL</code> diset." },
+    { from: "port", to: "floci", tag: "4566 → 4566", title: "Port diteruskan ke container", text: "Opsi <code>ports: \"127.0.0.1:4566:4566\"</code> meneruskan port laptop ke container Floci. <code>127.0.0.1</code> membuat Floci tidak bisa diakses dari laptop lain di jaringan." },
+    { from: "floci", to: "vol", tag: "hybrid", title: "Data disimpan ke volume", text: "Dengan <code>FLOCI_STORAGE_MODE=hybrid</code>, data dibaca dari memori dan disalin berkala ke volume <code>floci-data</code>, sehingga tetap ada setelah restart." },
+    { from: "floci", to: "lam", tag: "docker.sock", title: "Floci menyalakan container lain", text: "Lewat <code>/var/run/docker.sock</code>, Floci meminta Docker menjalankan container runtime Lambda saat fungsi dipanggil." },
+    { from: "floci", to: "db", tag: "docker.sock", title: "Layanan berbasis container", text: "RDS, ElastiCache, OpenSearch, dan sejenisnya juga dijalankan sebagai container sungguhan." },
+    { from: "browser", to: "port", tag: "/_floci/ui", title: "Konsol web", text: "Membuka <code>localhost:4566/_floci/ui</code> di browser…" },
+    { from: "floci", to: "ui", tag: "start", title: "Konsol dinyalakan sesuai permintaan", text: "…membuat Floci menyalakan container konsol, lalu browser dialihkan ke sana.", kind: "ok" },
+    { from: "floci", to: "you", tag: "200 OK", title: "Jawaban kembali", text: "Respons berformat AWS kembali ke terminal. Di macOS dan Linux alurnya sama; hanya lapisan WSL2 diganti VM Docker Desktop/OrbStack/Colima atau Docker langsung.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>
