@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modul 6 IAM — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-module="6">
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Belajar AWS dari Nol › Modul 6</div>
+<h1>🔑 Modul 6 · IAM: Siapa Boleh Apa</h1>
+<div class="learn-meta"><span>⏱ 90 menit</span><span>📶 Menengah</span><span>🧩 AWS IAM + STS</span></div>
+<div class="mod-progress"><div class="progress"><div></div></div><b></b></div>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>IAM adalah <b>satpam dan sistem kartu akses gedung</b>. Setiap orang (<b>user</b>) atau mesin (<b>role</b>) membawa kartu.
+Kartu itu terhubung ke daftar aturan (<b>policy</b>) seperti "boleh masuk lantai 3, tidak boleh masuk ruang server".
+Setiap kali ada request, satpam mengecek aturan.</p>
+<p>Aturan dasarnya: <b>semua dilarang kecuali diizinkan</b>, dan <b>larangan eksplisit selalu menang</b> atas izin.</p></div>
+
+<h2>Tujuan modul</h2>
+<ul class="goals">
+  <li>Menyalakan mode penegakan IAM di Floci, karena default-nya Floci mengizinkan semua request.</li>
+  <li>Membuat user dan access key, lalu melihat sendiri request ditolak (<code>AccessDenied</code>).</li>
+  <li>Membaca dan menulis policy JSON: <code>Effect</code>, <code>Action</code>, <code>Resource</code>.</li>
+  <li>Memahami urutan evaluasi: default deny → allow → explicit deny.</li>
+  <li>Memakai <b>role</b> dan kredensial sementara lewat <code>sts assume-role</code>.</li>
+</ul>
+
+<h2>Konsep kunci</h2>
+<div class="table-wrap"><table>
+<tr><th>Istilah</th><th>Arti</th></tr>
+<tr><td><b>Root</b></td><td>Pemilik akun, boleh segalanya. Di AWS asli <b>jangan dipakai sehari-hari</b>. Di Floci, kredensial <code>test</code> = root.</td></tr>
+<tr><td><b>User</b></td><td>Identitas permanen untuk orang atau aplikasi, punya access key jangka panjang</td></tr>
+<tr><td><b>Role</b></td><td>Identitas yang "dipakai sementara" oleh user, layanan (mis. Lambda), atau akun lain. Kredensialnya kedaluwarsa.</td></tr>
+<tr><td><b>Policy</b></td><td>Dokumen JSON berisi <i>statement</i>: <code>Effect</code> (Allow/Deny), <code>Action</code> (mis. <code>s3:GetObject</code>), <code>Resource</code> (ARN)</td></tr>
+<tr><td><b>Trust policy</b></td><td>Policy khusus role: <b>siapa</b> yang boleh memakai role ini</td></tr>
+<tr><td><b>Least privilege</b></td><td>Beri izin seminimal mungkin yang cukup untuk bekerja</td></tr>
+</table></div>
+
+<h2>Animasi: bagaimana satpam IAM memutuskan</h2>
+<div id="anim"></div>
+
+<h2>Langkah praktik</h2>
+
+<div class="step" data-id="enable"><div class="step-head"><h3>Nyalakan Floci dengan penegakan IAM</h3></div>
+<p>Secara default Floci <b>tidak mengecek policy</b> agar mudah dipakai. Untuk modul ini kita aktifkan pengecekan.
+(Restart ini menghapus data latihan sebelumnya.)</p>
+<pre><code>docker rm -f floci
+docker run -d --name floci -p 4566:4566 \
+  -v /var/run/docker.sock:/var/run/docker.sock -u root \
+  -e FLOCI_SERVICES_IAM_ENFORCEMENT_ENABLED=true \
+  floci/floci:latest
+
+sleep 3; docker logs floci 2&gt;&amp;1 | grep "IAM:"</code></pre>
+<div class="out"><pre><code>… IAM:       policy enforcement enabled</code></pre></div>
+<p>Kredensial <code>test</code> tetap bebas (dianggap root). Pembatasan berlaku untuk user dan role yang kita buat.</p>
+</div>
+
+<div class="step" data-id="user"><div class="step-head"><h3>Buat data uji, user "magang", dan access key-nya</h3></div>
+<pre><code># sebagai root (kredensial test)
+aws s3 mb s3://laporan
+echo "omzet naik 10%" &gt; ringkas.txt; aws s3 cp ringkas.txt s3://laporan/umum/ringkas.txt
+echo "gaji direksi"   &gt; gaji.txt;    aws s3 cp gaji.txt    s3://laporan/rahasia/gaji.txt
+
+aws iam create-user --user-name magang --query User.Arn
+read MAGANG_AK MAGANG_SK &lt;&lt;&lt; $(aws iam create-access-key --user-name magang \
+  --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text)
+echo $MAGANG_AK
+
+# fungsi bantu: jalankan perintah aws sebagai magang
+sebagai_magang() { AWS_ACCESS_KEY_ID=$MAGANG_AK AWS_SECRET_ACCESS_KEY=$MAGANG_SK aws "$@"; }
+sebagai_magang sts get-caller-identity --query Arn</code></pre>
+<div class="out"><pre><code>"arn:aws:iam::000000000000:user/magang"
+AKIA…
+"arn:aws:iam::000000000000:user/magang"</code></pre></div>
+<p>Fungsi <code>sebagai_magang</code> hanya mengganti kredensial untuk satu perintah. Terminal Anda tetap memakai <code>test</code>.
+<code>sts get-caller-identity</code> selalu diizinkan, bahkan tanpa policy.</p>
+</div>
+
+<div class="step" data-id="deny"><div class="step-head"><h3>Lihat request ditolak</h3></div>
+<pre><code>sebagai_magang s3 ls
+sebagai_magang sqs list-queues</code></pre>
+<div class="out"><pre><code>An error occurred (AccessDenied) when calling the ListBuckets operation: …
+An error occurred (AccessDeniedException) when calling the ListQueues operation: …</code></pre></div>
+<p>User baru <b>tidak punya izin apa pun</b> (implicit deny). Kode error-nya berbeda per protokol: S3 memakai <code>AccessDenied</code> (HTTP 403),
+sedangkan layanan JSON seperti SQS memakai <code>AccessDeniedException</code> (HTTP 400). Keduanya sama artinya: <b>tidak boleh</b>.</p>
+</div>
+
+<div class="step" data-id="allow"><div class="step-head"><h3>Beri izin baca dengan policy</h3></div>
+<pre><code>cat &gt; baca-laporan.json &lt;&lt;'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "LihatDaftarBucket", "Effect": "Allow",
+      "Action": "s3:ListAllMyBuckets", "Resource": "*" },
+    { "Sid": "LihatIsiBucketLaporan", "Effect": "Allow",
+      "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::laporan" },
+    { "Sid": "BacaFileLaporan", "Effect": "Allow",
+      "Action": "s3:GetObject", "Resource": "arn:aws:s3:::laporan/*" }
+  ]
+}
+EOF
+aws iam put-user-policy --user-name magang --policy-name baca-laporan \
+  --policy-document file://baca-laporan.json
+
+sebagai_magang s3 ls
+sebagai_magang s3 cp s3://laporan/umum/ringkas.txt -
+sebagai_magang s3 cp ringkas.txt s3://laporan/umum/coba-tulis.txt</code></pre>
+<div class="out"><pre><code>2026-11-01 10:00:00 laporan
+omzet naik 10%
+upload failed: ./ringkas.txt to s3://laporan/umum/coba-tulis.txt An error occurred (AccessDenied) when calling the PutObject operation: …</code></pre></div>
+<p>Membaca boleh, menulis tidak, karena kita tidak memberi <code>s3:PutObject</code>. Perhatikan dua bentuk Resource:
+<code>arn:aws:s3:::laporan</code> = <b>bucket</b>-nya (untuk list), <code>arn:aws:s3:::laporan/*</code> = <b>object</b> di dalamnya.</p>
+</div>
+
+<div class="step" data-id="explicit"><div class="step-head"><h3>Larangan eksplisit (Deny) selalu menang</h3></div>
+<pre><code>cat &gt; larang-rahasia.json &lt;&lt;'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Deny", "Action": "s3:*", "Resource": "arn:aws:s3:::laporan/rahasia/*" }
+  ]
+}
+EOF
+aws iam put-user-policy --user-name magang --policy-name larang-rahasia \
+  --policy-document file://larang-rahasia.json
+
+sebagai_magang s3 cp s3://laporan/umum/ringkas.txt -
+sebagai_magang s3 cp s3://laporan/rahasia/gaji.txt -
+aws iam list-user-policies --user-name magang</code></pre>
+<div class="out"><pre><code>omzet naik 10%
+fatal error: An error occurred (403) when calling the HeadObject operation: Forbidden
+{
+    "PolicyNames": [
+        "baca-laporan",
+        "larang-rahasia"
+    ]
+}</code></pre></div>
+<p>Untuk download, CLI memanggil <code>HeadObject</code> lebih dulu. Respons HEAD tidak punya body, jadi yang tampil
+hanya <code>403 Forbidden</code>, bukan kode <code>AccessDenied</code>. Artinya tetap sama.</p>
+<p><code>baca-laporan</code> mengizinkan <code>laporan/*</code>, tetapi <code>larang-rahasia</code> melarang <code>laporan/rahasia/*</code>.
+Karena <b>Deny menang</b>, file rahasia tetap tertutup.</p>
+</div>
+
+<div class="step" data-id="role"><div class="step-head"><h3>Role dan kredensial sementara</h3></div>
+<p>Skenario: magang sesekali perlu mengelola antrean SQS. Daripada menambah izin permanen, kita buat role <code>pengelola-antrean</code>
+yang boleh "dipinjam" oleh magang.</p>
+<div data-tabs>
+<div class="tabs"><button class="on">AWS CLI</button><button>Python (boto3)</button></div>
+<div class="tab-panel on"><pre><code># 1) Trust policy: SIAPA boleh memakai role ini
+cat &gt; trust.json &lt;&lt;'EOF'
+{ "Version": "2012-10-17",
+  "Statement": [{ "Effect": "Allow", "Action": "sts:AssumeRole",
+                  "Principal": { "AWS": "arn:aws:iam::000000000000:user/magang" } }] }
+EOF
+ROLE_ARN=$(aws iam create-role --role-name pengelola-antrean \
+  --assume-role-policy-document file://trust.json --query Role.Arn --output text)
+
+# 2) Izin role: APA yang boleh dilakukan role ini
+aws iam put-role-policy --role-name pengelola-antrean --policy-name sqs-penuh \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sqs:*","Resource":"*"}]}'
+
+# 3) Magang juga harus diizinkan memanggil sts:AssumeRole ke role itu
+aws iam put-user-policy --user-name magang --policy-name boleh-pinjam-role \
+  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"sts:AssumeRole\",\"Resource\":\"$ROLE_ARN\"}]}"
+
+# 4) Magang meminjam role → dapat kredensial sementara
+read RAK RSK RTOK &lt;&lt;&lt; $(sebagai_magang sts assume-role --role-arn $ROLE_ARN \
+  --role-session-name sesi-magang \
+  --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)
+
+AWS_ACCESS_KEY_ID=$RAK AWS_SECRET_ACCESS_KEY=$RSK AWS_SESSION_TOKEN=$RTOK aws sts get-caller-identity --query Arn
+AWS_ACCESS_KEY_ID=$RAK AWS_SECRET_ACCESS_KEY=$RSK AWS_SESSION_TOKEN=$RTOK aws sqs create-queue --queue-name antrean-magang
+AWS_ACCESS_KEY_ID=$RAK AWS_SECRET_ACCESS_KEY=$RSK AWS_SESSION_TOKEN=$RTOK aws s3 ls</code></pre></div>
+<div class="tab-panel"><pre><code>import os, boto3
+
+magang = boto3.Session(aws_access_key_id=os.environ["MAGANG_AK"],
+                       aws_secret_access_key=os.environ["MAGANG_SK"])
+cred = magang.client("sts").assume_role(
+    RoleArn="arn:aws:iam::000000000000:role/pengelola-antrean",
+    RoleSessionName="sesi-python")["Credentials"]
+
+sesi_role = boto3.Session(aws_access_key_id=cred["AccessKeyId"],
+                          aws_secret_access_key=cred["SecretAccessKey"],
+                          aws_session_token=cred["SessionToken"])
+print(sesi_role.client("sts").get_caller_identity()["Arn"])
+print(sesi_role.client("sqs").list_queues().get("QueueUrls"))
+print("berlaku sampai", cred["Expiration"])
+
+# jalankan dengan: export MAGANG_AK MAGANG_SK; python role.py</code></pre></div>
+</div>
+<div class="out"><pre><code>"arn:aws:sts::000000000000:assumed-role/pengelola-antrean/sesi-magang"
+{ "QueueUrl": "http://localhost:4566/000000000000/antrean-magang" }
+An error occurred (AccessDenied) when calling the ListBuckets operation: …</code></pre></div>
+<p>Saat memakai role, izin magang sendiri <b>tidak terbawa</b>: sesi role hanya boleh SQS, sehingga <code>s3 ls</code> ditolak.
+Access key sementara diawali <code>ASIA</code> dan wajib disertai <code>SessionToken</code>.</p>
+<p>Begitu juga cara <b>Lambda</b> bekerja: fungsi berjalan dengan kredensial sementara dari <i>execution role</i>-nya.</p>
+</div>
+
+<div class="step" data-id="reset"><div class="step-head"><h3>Kembali ke mode normal</h3></div>
+<p>Untuk Modul 7, jalankan lagi Floci <b>tanpa</b> penegakan IAM agar fokus pada alur aplikasi:</p>
+<pre><code>docker rm -f floci
+docker run -d --name floci -p 4566:4566 \
+  -v /var/run/docker.sock:/var/run/docker.sock -u root \
+  floci/floci:latest</code></pre>
+<p>Di dunia nyata justru sebaliknya: selalu biasakan menguji aplikasi <b>dengan</b> penegakan IAM sebelum deploy, agar
+kekurangan izin ketahuan di laptop dan bukan di produksi.</p>
+</div>
+
+<h2>Anatomi sebuah policy</h2>
+<pre><code>{
+  "Version": "2012-10-17",                  ← selalu tulis persis begini
+  "Statement": [{
+    "Sid": "BacaFileLaporan",                ← nama bebas (opsional)
+    "Effect": "Allow",                       ← Allow atau Deny
+    "Action": ["s3:GetObject"],              ← layanan:Operasi, boleh pakai * (s3:Get*)
+    "Resource": "arn:aws:s3:::laporan/*",    ← resource yang dikenai
+    "Condition": {                           ← opsional: syarat tambahan
+      "IpAddress": { "aws:SourceIp": "10.0.0.0/8" }
+    }
+  }]
+}</code></pre>
+
+<h2>Kesalahan umum</h2>
+<div class="table-wrap"><table>
+<tr><th>Gejala</th><th>Penyebab</th></tr>
+<tr><td>Semua request magang tetap berhasil</td><td>Penegakan IAM belum aktif. Cek <code>docker logs floci | grep IAM:</code>. Nama variabel harus persis <code>FLOCI_SERVICES_IAM_ENFORCEMENT_ENABLED</code>.</td></tr>
+<tr><td><code>s3 ls s3://laporan</code> ditolak padahal <code>GetObject</code> diizinkan</td><td>Listing butuh <code>s3:ListBucket</code> pada ARN <b>bucket</b> (tanpa <code>/*</code>)</td></tr>
+<tr><td><code>MalformedPolicyDocument</code></td><td>JSON tidak valid, atau lupa <code>"Version": "2012-10-17"</code></td></tr>
+<tr><td><code>UnrecognizedClientException</code> / <code>InvalidClientTokenId</code></td><td>Access key salah, sudah dihapus, atau (untuk role) lupa <code>AWS_SESSION_TOKEN</code></td></tr>
+<tr><td><code>AccessDenied</code> saat assume-role</td><td>Trust policy tidak menyebut pemanggil, atau pemanggil tidak punya izin <code>sts:AssumeRole</code></td></tr>
+</table></div>
+
+<h2>Latihan mandiri</h2>
+<div class="exercise"><b>Latihan 1.</b> Beri magang izin <b>menulis</b> hanya ke prefix <code>laporan/draft/</code>. Buktikan bisa menulis ke <code>draft/</code> tetapi tidak ke <code>umum/</code>.
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<pre><code>aws iam put-user-policy --user-name magang --policy-name tulis-draft --policy-document \
+ '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:PutObject","Resource":"arn:aws:s3:::laporan/draft/*"}]}'
+sebagai_magang s3 cp ringkas.txt s3://laporan/draft/a.txt     # berhasil
+sebagai_magang s3 cp ringkas.txt s3://laporan/umum/a.txt      # AccessDenied</code></pre></details></div>
+<div class="exercise"><b>Latihan 2.</b> Nonaktifkan access key magang, lalu coba <code>sebagai_magang s3 ls</code>. Error apa yang muncul?
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<pre><code>aws iam update-access-key --user-name magang --access-key-id $MAGANG_AK --status Inactive
+sebagai_magang s3 ls</code></pre>
+<p>Request ditolak karena kunci tidak aktif lagi. Inilah langkah pertama jika sebuah access key bocor:
+<b>nonaktifkan, buat yang baru, lalu hapus yang lama</b>.</p></details></div>
+
+<h2>Kuis</h2>
+<div class="quiz" data-answer="2"><div class="q">1. Policy A mengizinkan <code>s3:*</code> pada semua resource. Policy B melarang <code>s3:DeleteObject</code>. Bolehkah user menghapus object?</div>
+<button class="opt">Boleh, karena A lebih luas</button>
+<button class="opt">Tergantung policy mana yang dibuat terakhir</button>
+<button class="opt">Tidak boleh. Deny eksplisit selalu menang.</button>
+<div class="why">Urutan pembuatan tidak berpengaruh. Satu Deny yang cocok sudah cukup untuk menolak.</div></div>
+<div class="quiz" data-answer="0"><div class="q">2. User baru tanpa policy apa pun mencoba <code>dynamodb list-tables</code>. Hasilnya?</div>
+<button class="opt">Ditolak (implicit deny)</button>
+<button class="opt">Diizinkan karena hanya membaca</button>
+<button class="opt">Diizinkan karena user satu akun dengan root</button>
+<div class="why">Default IAM adalah menolak. Izin harus diberikan secara eksplisit.</div></div>
+<div class="quiz" data-answer="1"><div class="q">3. Cara terbaik memberi fungsi Lambda akses ke DynamoDB?</div>
+<button class="opt">Taruh access key user di environment variable fungsi</button>
+<button class="opt">Execution role dengan policy yang hanya mengizinkan tabel yang dibutuhkan</button>
+<button class="opt">Gunakan kredensial root</button>
+<div class="why">Role memberi kredensial sementara yang berganti otomatis, dan least privilege membatasi kerusakan jika ada bug atau kebocoran.</div></div>
+
+<h2>Di AWS asli, apa bedanya?</h2>
+<ul>
+  <li>IAM <b>selalu</b> aktif. Tidak ada mode "izinkan semua" seperti default Floci.</li>
+  <li>Segera aktifkan <b>MFA</b> untuk root, lalu buat user/Identity Center untuk kerja sehari-hari.</li>
+  <li>Gunakan <b>AWS managed policy</b> (mis. <code>ReadOnlyAccess</code>) sebagai titik awal, dan <i>IAM Access Analyzer</i> untuk mengecek izin berlebih.</li>
+  <li>Jangan pernah commit access key ke Git.</li>
+</ul>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/flow.js"></script>
+<script src="assets/learn.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("anim"), {
+  title: "magang: s3 cp s3://laporan/rahasia/gaji.txt",
+  width: 940, height: 320,
+  nodes: [
+    { id: "u", x: 20, y: 130, w: 150, h: 60, label: "User magang", sub: "AKIA…", kind: "client", icon: "🧑‍🎓" },
+    { id: "who", x: 210, y: 130, w: 160, h: 60, label: "Siapa ini?", sub: "access key → user", kind: "filter", icon: "🪪" },
+    { id: "deny", x: 420, y: 20, w: 200, h: 60, label: "Ada Deny cocok?", sub: "larang-rahasia", kind: "filter", icon: "⛔" },
+    { id: "allow", x: 420, y: 130, w: 200, h: 60, label: "Ada Allow cocok?", sub: "baca-laporan", kind: "filter", icon: "✅" },
+    { id: "def", x: 420, y: 240, w: 200, h: 60, label: "Default", sub: "implicit deny", kind: "ext", icon: "🚪" },
+    { id: "s3", x: 700, y: 130, w: 200, h: 60, label: "S3", sub: "baru diproses jika lolos", kind: "svc", icon: "🪣" }
+  ],
+  steps: [
+    { from: "u", to: "who", tag: "GetObject", title: "Request masuk", text: "Request ditandatangani dengan access key magang. IAM mencari identitas pemilik kunci itu." },
+    { from: "who", to: "deny", tag: "langkah 1", title: "Cek Deny eksplisit dulu", text: "Semua policy magang diperiksa. <code>larang-rahasia</code> melarang <code>s3:*</code> pada <code>laporan/rahasia/*</code>, dan cocok!" },
+    { from: "deny", to: "u", tag: "AccessDenied", title: "Ditolak: Deny menang", text: "Satu Deny yang cocok = tolak, meski ada Allow. S3 tidak pernah menyentuh file.", kind: "err" },
+    { from: "who", to: "allow", tag: "umum/ringkas.txt", title: "Request lain: file umum", text: "Untuk <code>laporan/umum/ringkas.txt</code> tidak ada Deny cocok, jadi lanjut mencari Allow. <code>baca-laporan</code> mengizinkan <code>s3:GetObject</code> pada <code>laporan/*</code>." },
+    { from: "allow", to: "s3", tag: "diizinkan", title: "Lolos", text: "Request diteruskan ke S3 dan file dikembalikan.", kind: "ok" },
+    { from: "who", to: "def", tag: "PutObject", title: "Request ketiga: menulis", text: "Untuk upload tidak ada Deny, dan juga tidak ada Allow untuk <code>s3:PutObject</code>…" },
+    { from: "def", to: "u", tag: "AccessDenied", title: "Ditolak: tidak ada izin", text: "…maka berlaku <b>default deny</b>. Semua yang tidak diizinkan berarti dilarang.", kind: "err" }
+  ]
+});
+</script>
+</body>
+</html>

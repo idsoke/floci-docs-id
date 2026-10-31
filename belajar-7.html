@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modul 7 Proyek Akhir — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-module="7">
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Belajar AWS dari Nol › Modul 7</div>
+<h1>🏁 Modul 7 · Proyek Akhir: Pemroses Pesanan</h1>
+<div class="learn-meta"><span>⏱ 2–3 jam</span><span>📶 Menengah</span><span>🧩 S3 · SQS · Lambda · DynamoDB · SNS</span></div>
+<div class="mod-progress"><div class="progress"><div></div></div><b></b></div>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Kita membangun "dapur otomatis" sebuah warung online. Pelanggan menaruh <b>file pesanan</b> di S3. S3 menaruh
+<b>catatan</b> di antrean SQS. Lambda mengambil catatan itu, membaca file pesanan, <b>mencatatnya</b> di DynamoDB, lalu
+<b>mengumumkan</b> lewat SNS bahwa pesanan sudah diproses. Bagian notifikasi menerima pengumuman di antreannya sendiri.</p>
+<p>Inilah pola <b>event-driven serverless</b> yang sangat umum di AWS: tidak ada server yang menyala terus,
+setiap bagian bergerak hanya karena ada event.</p></div>
+
+<h2>Arsitektur</h2>
+<div id="anim"></div>
+
+<div class="table-wrap"><table>
+<tr><th>Resource</th><th>Nama</th><th>Peran</th><th>Modul</th></tr>
+<tr><td>S3 bucket</td><td><code>pesanan-masuk</code></td><td>Tempat file pesanan JSON diunggah</td><td>1</td></tr>
+<tr><td>SQS queue</td><td><code>antrean-pesanan</code> + DLQ <code>pesanan-rusak</code></td><td>Penyangga event dari S3, pesan gagal dipindah ke DLQ</td><td>2</td></tr>
+<tr><td>Lambda</td><td><code>proses-pesanan</code></td><td>Logika bisnis: validasi, simpan, umumkan</td><td>5</td></tr>
+<tr><td>DynamoDB table</td><td><code>PesananTercatat</code></td><td>Penyimpanan hasil (PK <code>pelanggan</code>, SK <code>id</code>)</td><td>4</td></tr>
+<tr><td>SNS topic</td><td><code>pesanan-diproses</code></td><td>Siaran "pesanan selesai diproses"</td><td>3</td></tr>
+<tr><td>SQS queue</td><td><code>notifikasi</code></td><td>Subscriber SNS (pura-puranya layanan email)</td><td>2, 3</td></tr>
+</table></div>
+
+<h2>Langkah praktik</h2>
+<div class="note"><strong>Sebelum mulai:</strong> Floci berjalan <b>tanpa</b> penegakan IAM dan dengan <code>docker.sock</code> (lihat langkah terakhir Modul 6).
+Kerjakan di satu folder baru: <code>mkdir ~/proyek-pesanan &amp;&amp; cd ~/proyek-pesanan</code>.</div>
+
+<div class="step" data-id="infra"><div class="step-head"><h3>Buat semua resource dengan satu skrip</h3></div>
+<pre><code>cat &gt; infra.sh &lt;&lt;'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+B=http://localhost:4566/000000000000
+arn_q() { aws sqs get-queue-attributes --queue-url $B/$1 --attribute-names QueueArn --query Attributes.QueueArn --output text; }
+
+aws s3 mb s3://pesanan-masuk
+
+aws dynamodb create-table --table-name PesananTercatat \
+  --attribute-definitions AttributeName=pelanggan,AttributeType=S AttributeName=id,AttributeType=S \
+  --key-schema AttributeName=pelanggan,KeyType=HASH AttributeName=id,KeyType=RANGE \
+  --billing-mode PAY_PER_REQUEST &gt;/dev/null
+
+aws sqs create-queue --queue-name pesanan-rusak &gt;/dev/null
+aws sqs create-queue --queue-name antrean-pesanan --attributes "{
+  \"VisibilityTimeout\": \"30\",
+  \"RedrivePolicy\": \"{\\\"deadLetterTargetArn\\\":\\\"$(arn_q pesanan-rusak)\\\",\\\"maxReceiveCount\\\":\\\"3\\\"}\"
+}" &gt;/dev/null
+
+TOPIC=$(aws sns create-topic --name pesanan-diproses --query TopicArn --output text)
+aws sqs create-queue --queue-name notifikasi &gt;/dev/null
+aws sns subscribe --topic-arn $TOPIC --protocol sqs --notification-endpoint $(arn_q notifikasi) \
+  --attributes RawMessageDelivery=true &gt;/dev/null
+
+echo "TOPIC=$TOPIC"
+echo "QUEUE_ARN=$(arn_q antrean-pesanan)"
+EOF
+chmod +x infra.sh &amp;&amp; ./infra.sh</code></pre>
+<div class="out"><pre><code>make_bucket: pesanan-masuk
+TOPIC=arn:aws:sns:us-east-1:000000000000:pesanan-diproses
+QUEUE_ARN=arn:aws:sqs:us-east-1:000000000000:antrean-pesanan</code></pre></div>
+<p><code>set -euo pipefail</code> membuat skrip berhenti di error pertama. Membuat infrastruktur lewat skrip (bukan klik-klik)
+adalah awal dari <b>Infrastructure as Code</b>. Langkah berikutnya adalah Terraform atau CloudFormation, yang keduanya didukung Floci.</p>
+</div>
+
+<div class="step" data-id="notif"><div class="step-head"><h3>Sambungkan S3 → SQS</h3></div>
+<pre><code>B=http://localhost:4566/000000000000
+aws s3api put-bucket-notification-configuration --bucket pesanan-masuk \
+  --notification-configuration '{
+    "QueueConfigurations": [{
+      "QueueArn": "arn:aws:sqs:us-east-1:000000000000:antrean-pesanan",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {"Key": {"FilterRules": [{"Name": "suffix", "Value": ".json"}]}}
+    }]
+  }'
+
+aws sqs receive-message --queue-url $B/antrean-pesanan --query 'Messages[0].Body' --output text</code></pre>
+<div class="out"><pre><code>{"Service":"Amazon S3","Event":"s3:TestEvent","Time":"…","Bucket":"pesanan-masuk",…}</code></pre></div>
+<p>Saat konfigurasi diterima, S3 mengirim <b>pesan uji</b> <code>s3:TestEvent</code>. Pesan ini tidak punya <code>Records</code>,
+jadi kode Lambda kita harus mengabaikannya. Filter <code>suffix .json</code> berarti hanya file berakhiran <code>.json</code> yang memicu event.</p>
+</div>
+
+<div class="step" data-id="code"><div class="step-head"><h3>Tulis kode Lambda</h3></div>
+<pre><code>cat &gt; proses.py &lt;&lt;'EOF'
+import json, os, urllib.parse
+from decimal import Decimal
+import boto3
+from botocore.config import Config
+
+# Floci menyuntikkan AWS_ENDPOINT_URL ke container Lambda, jadi boto3 otomatis bicara ke Floci.
+# path-style agar nama bucket tidak perlu di-resolve sebagai hostname dari dalam container.
+s3 = boto3.client("s3", config=Config(s3={"addressing_style": "path"}))
+tabel = boto3.resource("dynamodb").Table(os.environ["TABLE"])
+sns = boto3.client("sns")
+WAJIB = ("id", "pelanggan", "items")
+
+def proses_satu(bucket, key):
+    isi = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+    p = json.loads(isi, parse_float=Decimal)              # error di sini = file rusak
+    hilang = [f for f in WAJIB if f not in p]
+    if hilang:
+        raise ValueError(f"{key}: field wajib hilang {hilang}")
+    total = sum(Decimal(i["harga"]) * i["jumlah"] for i in p["items"])
+    tabel.put_item(Item={**p, "id": str(p["id"]), "total": total, "status": "diproses", "sumber": key})
+    sns.publish(TopicArn=os.environ["TOPIC_ARN"],
+                Message=json.dumps({"id": str(p["id"]), "pelanggan": p["pelanggan"], "total": str(total)}),
+                MessageAttributes={"pelanggan": {"DataType": "String", "StringValue": p["pelanggan"]}})
+    print(f"OK pesanan {p['id']} milik {p['pelanggan']}: total {total}")
+
+def handler(event, context):
+    for rec in event["Records"]:                          # setiap rec = satu pesan SQS
+        body = json.loads(rec["body"])
+        if body.get("Event") == "s3:TestEvent":
+            print("abaikan pesan uji S3")
+            continue
+        for s3rec in body.get("Records", []):             # setiap s3rec = satu event S3
+            bucket = s3rec["s3"]["bucket"]["name"]
+            key = urllib.parse.unquote_plus(s3rec["s3"]["object"]["key"])
+            proses_satu(bucket, key)
+EOF
+zip -q proses.zip proses.py</code></pre>
+<p>Perhatikan dua lapis: SQS membungkus event S3. Satu pesan SQS bisa berisi satu atau lebih <i>record</i> S3.
+<code>unquote_plus</code> diperlukan karena key di event S3 di-encode (spasi menjadi <code>+</code>).</p>
+</div>
+
+<div class="step" data-id="deploy"><div class="step-head"><h3>Deploy Lambda dan sambungkan ke SQS</h3></div>
+<pre><code>TOPIC=arn:aws:sns:us-east-1:000000000000:pesanan-diproses
+
+aws lambda create-function --function-name proses-pesanan \
+  --runtime python3.12 --handler proses.handler \
+  --role arn:aws:iam::000000000000:role/lambda-role \
+  --zip-file fileb://proses.zip --timeout 30 \
+  --environment "Variables={TABLE=PesananTercatat,TOPIC_ARN=$TOPIC}" \
+  --query State
+
+aws lambda create-event-source-mapping --function-name proses-pesanan \
+  --event-source-arn arn:aws:sqs:us-east-1:000000000000:antrean-pesanan \
+  --batch-size 5 --query State</code></pre>
+<div class="out"><pre><code>"Active"
+"Enabled"</code></pre></div>
+</div>
+
+<div class="step" data-id="run"><div class="step-head"><h3>Uji dari ujung ke ujung</h3></div>
+<pre><code>cat &gt; p-101.json &lt;&lt;'EOF'
+{"id": 101, "pelanggan": "budi",
+ "items": [{"menu": "nasi goreng", "harga": 25000, "jumlah": 2},
+           {"menu": "es teh", "harga": 5000, "jumlah": 2}]}
+EOF
+cat &gt; p-102.json &lt;&lt;'EOF'
+{"id": 102, "pelanggan": "sari", "items": [{"menu": "rendang", "harga": 35000, "jumlah": 1}]}
+EOF
+aws s3 cp p-101.json s3://pesanan-masuk/hari-ini/
+aws s3 cp p-102.json s3://pesanan-masuk/hari-ini/
+
+sleep 10    # invoke pertama = cold start
+
+aws dynamodb scan --table-name PesananTercatat \
+  --query 'Items[].[id.S, pelanggan.S, total.N, status.S]' --output table
+aws sqs receive-message --queue-url http://localhost:4566/000000000000/notifikasi \
+  --max-number-of-messages 10 --query 'Messages[].Body'
+aws logs tail /aws/lambda/proses-pesanan --since 10m | grep -E "OK|abaikan"</code></pre>
+<div class="out"><pre><code>---------------------------------------------
+|                   Scan                    |
++------+--------+---------+-----------------+
+|  101 |  budi  |  60000  |  diproses       |
+|  102 |  sari  |  35000  |  diproses       |
++------+--------+---------+-----------------+
+[
+    "{\"id\": \"101\", \"pelanggan\": \"budi\", \"total\": \"60000\"}",
+    "{\"id\": \"102\", \"pelanggan\": \"sari\", \"total\": \"35000\"}"
+]
+… abaikan pesan uji S3
+… OK pesanan 101 milik budi: total 60000
+… OK pesanan 102 milik sari: total 35000</code></pre></div>
+<p>🎉 Satu perintah <code>s3 cp</code> memicu rantai lima layanan. Urutan baris di tabel dan antrean bisa berbeda.
+Kalau tabel masih kosong, tunggu beberapa detik lagi lalu ulangi, atau periksa log.</p>
+</div>
+
+<div class="step" data-id="fail"><div class="step-head"><h3>Uji kegagalan: file rusak masuk DLQ</h3></div>
+<pre><code>echo '{"id": 103, "pelanggan": "andi"' &gt; rusak.json      # JSON tidak lengkap
+aws s3 cp rusak.json s3://pesanan-masuk/hari-ini/
+
+# tunggu: 3 kali percobaan × visibility timeout 30 detik, plus sedikit cadangan
+sleep 120
+aws logs tail /aws/lambda/proses-pesanan --since 5m | grep "ERROR"
+aws sqs receive-message --queue-url http://localhost:4566/000000000000/pesanan-rusak \
+  --query 'Messages[0].Body' --output text | python3 -c "import json,sys; print(json.load(sys.stdin)['Records'][0]['s3']['object']['key'])"</code></pre>
+<div class="out"><pre><code>… [ERROR] JSONDecodeError: Expecting ',' delimiter: line 1 column 32 …
+… [ERROR] JSONDecodeError: Expecting ',' delimiter: line 1 column 32 …
+… [ERROR] JSONDecodeError: Expecting ',' delimiter: line 1 column 32 …
+hari-ini/rusak.json</code></pre></div>
+<p>Lambda gagal, pesan kembali ke antrean, dicoba lagi… Setelah melewati <code>maxReceiveCount</code> (3), pesan dipindah ke
+<code>pesanan-rusak</code>. Pesanan lain tetap lancar. Tim bisa memeriksa DLQ, memperbaiki file, lalu memprosesnya ulang.
+Jumlah baris error dan format log persisnya bisa sedikit berbeda. Kalau DLQ masih kosong, tunggu 30 detik lagi.</p>
+</div>
+
+<div class="step" data-id="cleanup"><div class="step-head"><h3>Bersih-bersih</h3></div>
+<pre><code>cat &gt; hapus.sh &lt;&lt;'EOF'
+#!/usr/bin/env bash
+B=http://localhost:4566/000000000000
+for u in $(aws lambda list-event-source-mappings --function-name proses-pesanan --query 'EventSourceMappings[].UUID' --output text); do
+  aws lambda delete-event-source-mapping --uuid $u &gt;/dev/null; done
+aws lambda delete-function --function-name proses-pesanan
+aws s3 rb s3://pesanan-masuk --force
+aws dynamodb delete-table --table-name PesananTercatat &gt;/dev/null
+for q in antrean-pesanan pesanan-rusak notifikasi; do aws sqs delete-queue --queue-url $B/$q; done
+aws sns delete-topic --topic-arn arn:aws:sns:us-east-1:000000000000:pesanan-diproses
+echo "bersih"
+EOF
+chmod +x hapus.sh &amp;&amp; ./hapus.sh</code></pre>
+<p>Di Floci Anda juga bisa langsung <code>docker rm -f floci</code>. Di AWS asli, <b>skrip pembersih seperti ini menyelamatkan dompet</b>:
+resource yang lupa dihapus akan terus ditagih.</p>
+</div>
+
+<h2>Tantangan lanjutan</h2>
+<div class="grid two">
+  <div class="card"><div class="icon">🔐</div><h3>Least privilege</h3><p>Nyalakan penegakan IAM, buat role <code>proses-pesanan-role</code> yang hanya boleh <code>s3:GetObject</code> pada bucket ini, <code>dynamodb:PutItem</code> pada tabel ini, dan <code>sns:Publish</code> pada topic ini. Pakai sebagai <code>--role</code>.</p></div>
+  <div class="card"><div class="icon">🌐</div><h3>API HTTP</h3><p>Tambahkan API Gateway + Lambda <code>GET /pesanan/{pelanggan}</code> yang melakukan Query ke DynamoDB.</p></div>
+  <div class="card"><div class="icon">🧱</div><h3>Infrastructure as Code</h3><p>Tulis ulang <code>infra.sh</code> sebagai Terraform (lihat halaman <a href="penggunaan.html">Cara Memakai</a>) lalu <code>terraform apply</code> ke Floci.</p></div>
+  <div class="card"><div class="icon">🎯</div><h3>Filter notifikasi</h3><p>Tambahkan antrean <code>notifikasi-vip</code> dengan filter policy yang hanya menerima pesanan bertotal di atas 50.000 (petunjuk: filter numerik <code>{"numeric": ["&gt;", 50000]}</code>, kirim total sebagai atribut <code>Number</code>).</p></div>
+  <div class="card"><div class="icon">🧪</div><h3>Tes otomatis</h3><p>Tulis tes <code>pytest</code> yang menjalankan <code>infra.sh</code>, mengunggah pesanan, lalu menunggu sampai item muncul di DynamoDB.</p></div>
+  <div class="card"><div class="icon">☁️</div><h3>Coba di AWS asli</h3><p>Dengan budget alert aktif, jalankan skrip yang sama di akun AWS sungguhan (hapus <code>AWS_ENDPOINT_URL</code>). Catat perbedaan yang muncul, misalnya izin queue policy untuk S3 dan SNS.</p></div>
+</div>
+
+<h2>Kuis akhir</h2>
+<div class="quiz" data-answer="1"><div class="q">1. Kenapa ada SQS di antara S3 dan Lambda, padahal S3 bisa langsung memanggil Lambda?</div>
+<button class="opt">Karena S3 tidak bisa memanggil Lambda</button>
+<button class="opt">Agar ada penyangga: lonjakan upload ditampung, kegagalan bisa dicoba ulang, dan pesan beracun masuk DLQ</button>
+<button class="opt">Agar lebih murah</button>
+<div class="why">S3 → Lambda langsung memang bisa, tetapi antrean memberi kontrol atas retry, batch, dan DLQ.</div></div>
+<div class="quiz" data-answer="0"><div class="q">2. Kalau DynamoDB sedang error, apa yang terjadi pada pesanan yang masuk?</div>
+<button class="opt">Lambda gagal, pesan kembali ke antrean dan dicoba lagi, lalu masuk DLQ jika terus gagal</button>
+<button class="opt">Pesanan hilang</button>
+<button class="opt">S3 menolak upload</button>
+<div class="why">Inilah ketahanan (resilience) yang didapat dari pola antrean.</div></div>
+<div class="quiz" data-answer="2"><div class="q">3. Layanan notifikasi ingin ikut tahu tanpa mengubah kode Lambda. Caranya?</div>
+<button class="opt">Tambahkan kode baru di Lambda</button>
+<button class="opt">Baca DynamoDB setiap menit</button>
+<button class="opt">Subscribe antrean barunya ke topic SNS <code>pesanan-diproses</code></button>
+<div class="why">Fan-out SNS membuat penerima baru bisa ditambah tanpa menyentuh pengirim.</div></div>
+
+<div class="note tip"><strong>Selamat! 🎓</strong> Anda sudah memakai enam layanan inti AWS dan pola arsitektur yang dipakai di produksi.
+Kembali ke <a href="belajar.html">Peta Belajar</a> untuk melihat progres dan sumber belajar lanjutan, atau pelajari cara Floci
+meniru semua ini di bagian <a href="arsitektur.html">Cara Kerja</a>.</div>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/flow.js"></script>
+<script src="assets/learn.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("anim"), {
+  title: "Satu upload, lima layanan bergerak",
+  width: 960, height: 360,
+  nodes: [
+    { id: "user", x: 15, y: 40, w: 140, h: 60, label: "Pelanggan", sub: "s3 cp p-101.json", kind: "client", icon: "🛒" },
+    { id: "s3", x: 200, y: 40, w: 160, h: 60, label: "S3", sub: "pesanan-masuk", kind: "store", icon: "🪣" },
+    { id: "q", x: 410, y: 40, w: 170, h: 60, label: "SQS", sub: "antrean-pesanan", kind: "svc", icon: "📨" },
+    { id: "dlq", x: 410, y: 160, w: 170, h: 56, label: "DLQ", sub: "pesanan-rusak", kind: "ext", icon: "🪦" },
+    { id: "fn", x: 630, y: 40, w: 170, h: 60, label: "Lambda", sub: "proses-pesanan", kind: "ext", icon: "λ" },
+    { id: "ddb", x: 630, y: 160, w: 170, h: 56, label: "DynamoDB", sub: "PesananTercatat", kind: "store", icon: "🗃️" },
+    { id: "sns", x: 630, y: 275, w: 170, h: 56, label: "SNS", sub: "pesanan-diproses", kind: "svc", icon: "📣" },
+    { id: "notif", x: 410, y: 275, w: 170, h: 56, label: "SQS", sub: "notifikasi", kind: "svc", icon: "✉️" },
+    { id: "logs", x: 830, y: 40, w: 120, h: 60, label: "Logs", kind: "store", icon: "📜" }
+  ],
+  steps: [
+    { from: "user", to: "s3", tag: "PutObject", title: "1. File pesanan diunggah", text: "<code>p-101.json</code> masuk ke bucket. Key berakhiran <code>.json</code>, jadi cocok dengan filter notifikasi." },
+    { from: "s3", to: "q", tag: "ObjectCreated:Put", title: "2. S3 mengirim event", text: "S3 menaruh pesan berisi <code>Records[].s3.bucket.name</code> dan <code>object.key</code> ke antrean. Isi file <b>tidak</b> ikut, hanya alamatnya." },
+    { from: "fn", to: "q", tag: "poll", title: "3. Lambda menarik pesan", text: "Event source mapping menarik hingga 5 pesan dan memanggil fungsi dengan batch tersebut." },
+    { from: "fn", to: "s3", tag: "GetObject", title: "4. Baca file pesanan", text: "Fungsi membaca isi JSON dari S3, memvalidasi field wajib, dan menghitung total." },
+    { from: "fn", to: "ddb", tag: "PutItem", title: "5. Simpan ke database", text: "Item dengan <code>pelanggan=budi</code>, <code>id=101</code>, <code>total=60000</code>, <code>status=diproses</code>.", kind: "ok" },
+    { from: "fn", to: "sns", tag: "Publish", title: "6. Umumkan", text: "Pesan ringkas dipublikasikan ke topic." },
+    { from: "sns", to: "notif", tag: "fan-out", title: "7. Notifikasi menerima", text: "Antrean notifikasi (dan subscriber lain yang ditambahkan nanti) menerima pengumuman.", kind: "ok" },
+    { from: "fn", to: "logs", tag: "print()", title: "8. Log", text: "<code>OK pesanan 101 milik budi: total 60000</code>." },
+    { from: "fn", to: "q", tag: "sukses → hapus", title: "9. Pesan dihapus", text: "Karena fungsi selesai tanpa error, Lambda menghapus pesan dari antrean.", kind: "ok" },
+    { from: "q", to: "dlq", tag: "gagal 3×", title: "Jalur gagal", text: "Untuk file rusak, fungsi melempar exception. Pesan kembali ke antrean, dicoba lagi, lalu dipindah ke DLQ setelah 3 kali penerimaan.", kind: "err" }
+  ]
+});
+</script>
+</body>
+</html>

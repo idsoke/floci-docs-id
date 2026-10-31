@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modul 1 S3 — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-module="1">
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Belajar AWS dari Nol › Modul 1</div>
+<h1>🪣 Modul 1 · S3: Menyimpan File</h1>
+<div class="learn-meta"><span>⏱ 60–90 menit</span><span>📶 Pemula</span><span>🧩 Amazon S3 (Simple Storage Service)</span></div>
+<div class="mod-progress"><div class="progress"><div></div></div><b></b></div>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p><b>S3</b> adalah gudang file tanpa batas, mirip Google Drive tetapi untuk program. Gudangnya disebut <b>bucket</b>,
+dan setiap file di dalamnya disebut <b>object</b>. Setiap object punya alamat unik bernama <b>key</b>, misalnya
+<code>gambar/2026/kucing.jpg</code>.</p>
+<p>Uniknya, S3 <b>tidak benar-benar punya folder</b>. <code>gambar/2026/</code> hanyalah bagian awal nama (disebut <b>prefix</b>).
+Tanda <code>/</code> membuatnya tampak seperti folder.</p></div>
+
+<h2>Tujuan modul</h2>
+<ul class="goals">
+  <li>Membuat bucket dan memahami aturan namanya.</li>
+  <li>Upload, list, download, dan hapus object.</li>
+  <li>Memahami prefix ("folder palsu") dan metadata.</li>
+  <li>Membuat presigned URL: link sementara untuk berbagi file tanpa kredensial.</li>
+  <li>Membedakan perintah <code>aws s3</code> (praktis) dan <code>aws s3api</code> (lengkap).</li>
+</ul>
+
+<h2>Konsep kunci</h2>
+<div class="table-wrap"><table>
+<tr><th>Istilah</th><th>Arti</th><th>Contoh</th></tr>
+<tr><td><b>Bucket</b></td><td>Wadah object. Nama harus unik, huruf kecil, 3–63 karakter, boleh <code>-</code> dan <code>.</code></td><td><code>belajar-idris</code></td></tr>
+<tr><td><b>Object</b></td><td>Satu file + metadata-nya. Ukuran hingga 5 TB.</td><td><code>halo.txt</code></td></tr>
+<tr><td><b>Key</b></td><td>Nama lengkap object di dalam bucket</td><td><code>gambar/2026/kucing.jpg</code></td></tr>
+<tr><td><b>Prefix</b></td><td>Awalan key, dipakai seperti folder</td><td><code>gambar/2026/</code></td></tr>
+<tr><td><b>Metadata</b></td><td>Info tambahan: <code>Content-Type</code>, ukuran, ETag, dan metadata buatan Anda (<code>x-amz-meta-*</code>)</td><td><code>pemilik=idris</code></td></tr>
+<tr><td><b>URI S3</b></td><td>Cara menulis lokasi di CLI</td><td><code>s3://belajar-idris/halo.txt</code></td></tr>
+</table></div>
+
+<h2>Animasi: upload lalu download</h2>
+<div id="anim"></div>
+
+<h2>Langkah praktik</h2>
+<p>Pastikan Floci menyala dan variabel dari Modul 0 sudah diset. Kita pakai nama bucket <code>belajar-idris</code>; ganti sesuka Anda.</p>
+
+<div class="step" data-id="mb"><div class="step-head"><h3>Buat bucket</h3></div>
+<pre><code>aws s3 mb s3://belajar-idris
+aws s3 ls</code></pre>
+<div class="out"><pre><code>make_bucket: belajar-idris
+2026-11-01 09:00:00 belajar-idris</code></pre></div>
+<p><code>mb</code> = <i>make bucket</i>. Coba juga <code>aws s3 mb s3://Belajar_Idris</code>: akan ditolak karena huruf besar dan garis bawah tidak diizinkan.</p>
+</div>
+
+<div class="step" data-id="cp"><div class="step-head"><h3>Upload file</h3></div>
+<pre><code>echo "Halo dari Floci!" &gt; halo.txt
+aws s3 cp halo.txt s3://belajar-idris/
+aws s3 ls s3://belajar-idris/</code></pre>
+<div class="out"><pre><code>upload: ./halo.txt to s3://belajar-idris/halo.txt
+2026-11-01 09:01:10         17 halo.txt</code></pre></div>
+<p>Angka <code>17</code> adalah ukuran file dalam byte.</p>
+</div>
+
+<div class="step" data-id="prefix"><div class="step-head"><h3>Folder palsu (prefix)</h3></div>
+<pre><code>echo "kucing" &gt; kucing.jpg
+echo "anjing" &gt; anjing.jpg
+aws s3 cp kucing.jpg s3://belajar-idris/gambar/2026/kucing.jpg
+aws s3 cp anjing.jpg s3://belajar-idris/gambar/2026/anjing.jpg
+
+aws s3 ls s3://belajar-idris/              # tingkat atas
+aws s3 ls s3://belajar-idris/gambar/2026/  # "masuk folder"
+aws s3 ls s3://belajar-idris --recursive   # semua object</code></pre>
+<div class="out"><pre><code>                           PRE gambar/
+2026-11-01 09:01:10         17 halo.txt
+
+2026-11-01 09:02:00          7 anjing.jpg
+2026-11-01 09:02:00          7 kucing.jpg
+
+2026-11-01 09:02:00          7 gambar/2026/anjing.jpg
+2026-11-01 09:02:00          7 gambar/2026/kucing.jpg
+2026-11-01 09:01:10         17 halo.txt</code></pre></div>
+<p><code>PRE</code> artinya <i>prefix</i>. Folder <code>gambar/</code> tidak pernah dibuat; ia muncul karena ada key yang diawali <code>gambar/</code>.</p>
+</div>
+
+<div class="step" data-id="get"><div class="step-head"><h3>Download dan baca isi file</h3></div>
+<pre><code>aws s3 cp s3://belajar-idris/halo.txt unduhan.txt
+cat unduhan.txt
+
+aws s3 cp s3://belajar-idris/halo.txt -     # "-" = tampilkan langsung ke layar</code></pre>
+<div class="out"><pre><code>download: s3://belajar-idris/halo.txt to ./unduhan.txt
+Halo dari Floci!
+Halo dari Floci!</code></pre></div>
+</div>
+
+<div class="step" data-id="s3api"><div class="step-head"><h3>Level API: metadata dengan <code>s3api</code></h3></div>
+<p><code>aws s3</code> adalah perintah praktis. <code>aws s3api</code> memetakan <b>satu-ke-satu</b> ke operasi API S3
+(<code>PutObject</code>, <code>HeadObject</code>, dan seterusnya), sama seperti yang dipanggil SDK di kode Anda.</p>
+<div data-tabs>
+<div class="tabs"><button class="on">AWS CLI</button><button>Python (boto3)</button></div>
+<div class="tab-panel on"><pre><code>aws s3api put-object --bucket belajar-idris --key catatan.json \
+  --body halo.txt --content-type application/json \
+  --metadata pemilik=idris,kategori=latihan
+
+aws s3api head-object --bucket belajar-idris --key catatan.json</code></pre></div>
+<div class="tab-panel"><pre><code>import boto3
+s3 = boto3.client("s3")
+
+s3.put_object(Bucket="belajar-idris", Key="catatan.json",
+              Body=b'{"pesan": "halo"}', ContentType="application/json",
+              Metadata={"pemilik": "idris", "kategori": "latihan"})
+
+info = s3.head_object(Bucket="belajar-idris", Key="catatan.json")
+print(info["ContentLength"], info["ContentType"], info["Metadata"])
+
+for obj in s3.list_objects_v2(Bucket="belajar-idris")["Contents"]:
+    print(obj["Key"], obj["Size"])</code></pre></div>
+</div>
+<div class="out"><pre><code>{
+    "ETag": "\"...\""
+}
+{
+    "LastModified": "...",
+    "ContentLength": 17,
+    "ETag": "\"...\"",
+    "ContentType": "application/json",
+    "Metadata": {
+        "kategori": "latihan",
+        "pemilik": "idris"
+    }
+}</code></pre></div>
+<p><b>ETag</b> adalah "sidik jari" isi file (untuk upload biasa berupa MD5). Kalau isinya berubah, ETag berubah.</p>
+</div>
+
+<div class="step" data-id="presign"><div class="step-head"><h3>Presigned URL: link berbagi sementara</h3></div>
+<p>Bucket S3 bersifat <b>privat</b>. Untuk memberi akses ke orang lain tanpa memberikan kredensial, buat URL yang sudah
+ditandatangani dan berlaku sementara.</p>
+<pre><code>URL=$(aws s3 presign s3://belajar-idris/halo.txt --expires-in 300)
+echo "$URL"
+curl -s "$URL"</code></pre>
+<div class="out"><pre><code>http://localhost:4566/belajar-idris/halo.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=test%2F...&amp;X-Amz-Expires=300&amp;X-Amz-Signature=...
+Halo dari Floci!</code></pre></div>
+<p>Bentuk host bisa juga <code>belajar-idris.localhost:4566</code>, tergantung versi CLI; Floci menerima keduanya.
+Setelah 300 detik, URL itu ditolak.</p>
+</div>
+
+<div class="step" data-id="clean"><div class="step-head"><h3>Sinkronisasi dan bersih-bersih</h3></div>
+<pre><code>mkdir -p laporan &amp;&amp; echo a &gt; laporan/a.txt &amp;&amp; echo b &gt; laporan/b.txt
+aws s3 sync laporan s3://belajar-idris/backup/   # hanya mengunggah yang berubah
+aws s3 sync laporan s3://belajar-idris/backup/   # jalankan lagi: tidak ada output
+
+aws s3 rm s3://belajar-idris/backup/ --recursive  # hapus semua dengan prefix backup/
+aws s3 rb s3://belajar-idris --force              # hapus bucket beserta isinya</code></pre>
+<div class="out"><pre><code>upload: laporan/a.txt to s3://belajar-idris/backup/a.txt
+upload: laporan/b.txt to s3://belajar-idris/backup/b.txt
+delete: s3://belajar-idris/backup/a.txt
+delete: s3://belajar-idris/backup/b.txt
+...
+remove_bucket: belajar-idris</code></pre></div>
+<p>Tanpa <code>--force</code>, <code>rb</code> gagal dengan <code>BucketNotEmpty</code>: bucket harus kosong sebelum dihapus.</p>
+</div>
+
+<h2>Kesalahan umum</h2>
+<div class="table-wrap"><table>
+<tr><th>Error</th><th>Arti</th></tr>
+<tr><td><code>NoSuchBucket</code></td><td>Nama bucket salah ketik, atau bucket sudah dihapus / Floci di-reset</td></tr>
+<tr><td><code>NoSuchKey</code> / <code>404 Not Found</code></td><td>Key salah. Ingat key itu peka huruf besar-kecil dan termasuk prefix lengkap.</td></tr>
+<tr><td><code>BucketAlreadyOwnedByYou</code></td><td>Anda membuat bucket yang sudah ada</td></tr>
+<tr><td><code>InvalidBucketName</code></td><td>Ada huruf besar, garis bawah, atau panjangnya di luar 3–63</td></tr>
+<tr><td><code>BucketNotEmpty</code></td><td>Kosongkan dulu, atau pakai <code>rb --force</code></td></tr>
+</table></div>
+
+<h2>Latihan mandiri</h2>
+<div class="exercise"><b>Latihan 1.</b> Buat bucket <code>arsip-latihan</code>, upload tiga file ke prefix <code>2026/11/</code>, lalu tampilkan
+<b>hanya</b> isi prefix tersebut beserta total ukurannya.
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<pre><code>aws s3 mb s3://arsip-latihan
+for i in 1 2 3; do echo "file $i" &gt; f$i.txt; aws s3 cp f$i.txt s3://arsip-latihan/2026/11/; done
+aws s3 ls s3://arsip-latihan/2026/11/ --summarize --human-readable</code></pre>
+<p><code>--summarize</code> menambahkan baris <code>Total Objects</code> dan <code>Total Size</code> di akhir.</p></details></div>
+<div class="exercise"><b>Latihan 2.</b> Dengan Python, upload file lalu cetak ETag-nya. Ubah isi file, upload lagi, dan bandingkan ETag.
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<pre><code>import boto3
+s3 = boto3.client("s3")
+for isi in [b"versi satu", b"versi dua"]:
+    r = s3.put_object(Bucket="arsip-latihan", Key="v.txt", Body=isi)
+    print(r["ETag"])</code></pre>
+<p>Dua ETag berbeda karena isinya berbeda. Upload isi yang sama akan menghasilkan ETag yang sama.</p></details></div>
+<div class="exercise"><b>Latihan 3.</b> Buat presigned URL yang berlaku 10 detik. Tunggu 15 detik, lalu buka URL-nya dengan <code>curl -i</code>. Status apa yang Anda dapat?
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<p><code>aws s3 presign s3://arsip-latihan/v.txt --expires-in 10</code>, lalu setelah kedaluwarsa responsnya
+<code>403 Forbidden</code> dengan kode error <code>AccessDenied</code> ("Request has expired").</p></details></div>
+
+<h2>Kuis</h2>
+<div class="quiz" data-answer="1"><div class="q">1. Anda upload <code>laporan/januari.pdf</code>. Apa yang sebenarnya tersimpan di S3?</div>
+<button class="opt">Sebuah folder <code>laporan</code> yang berisi file <code>januari.pdf</code></button>
+<button class="opt">Satu object dengan key <code>laporan/januari.pdf</code></button>
+<button class="opt">Dua object: <code>laporan/</code> dan <code>januari.pdf</code></button>
+<div class="why">S3 menyimpan data datar (flat). "Folder" hanyalah tampilan dari prefix key.</div></div>
+<div class="quiz" data-answer="2"><div class="q">2. Cara aman membagikan satu file privat ke teman selama 1 jam?</div>
+<button class="opt">Kirim access key dan secret key Anda</button>
+<button class="opt">Jadikan seluruh bucket publik</button>
+<button class="opt">Buat presigned URL dengan <code>--expires-in 3600</code></button>
+<div class="why">Presigned URL hanya membuka satu object untuk satu operasi dan kedaluwarsa sendiri.</div></div>
+<div class="quiz" data-answer="0"><div class="q">3. Perintah mana yang paling dekat dengan apa yang dipanggil SDK di kode aplikasi?</div>
+<button class="opt"><code>aws s3api put-object</code></button>
+<button class="opt"><code>aws s3 cp</code></button>
+<button class="opt"><code>aws s3 sync</code></button>
+<div class="why"><code>s3api</code> memetakan langsung ke operasi API (<code>PutObject</code>), sama dengan <code>s3.put_object()</code> di boto3.</div></div>
+
+<h2>Di AWS asli, apa bedanya?</h2>
+<ul>
+  <li>Nama bucket harus unik <b>di seluruh dunia</b> (semua akun AWS). Di Floci cukup unik di laptop Anda.</li>
+  <li>Anda membayar per GB yang disimpan per bulan, per request, dan per data keluar ke internet.</li>
+  <li>Ada <b>storage class</b> (Standard, Infrequent Access, Glacier) untuk menghemat biaya file yang jarang dibuka.</li>
+  <li><b>Block Public Access</b> aktif secara default. Jangan matikan kecuali benar-benar paham risikonya.</li>
+</ul>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/flow.js"></script>
+<script src="assets/learn.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("anim"), {
+  title: "PutObject lalu GetObject",
+  width: 920, height: 290,
+  zones: [ { x: 380, y: 4, w: 536, h: 282, label: "S3 (di Floci)" } ],
+  nodes: [
+    { id: "cli", x: 20, y: 110, w: 160, h: 64, label: "Anda", sub: "aws s3 cp", kind: "client", icon: "💻" },
+    { id: "file", x: 20, y: 215, w: 160, h: 50, label: "halo.txt", sub: "17 byte", kind: "store", icon: "📄" },
+    { id: "api", x: 210, y: 110, w: 150, h: 64, label: "API S3", sub: "REST XML", kind: "ctrl" },
+    { id: "bucket", x: 420, y: 100, w: 200, h: 84, label: "Bucket\nbelajar-idris", kind: "store", icon: "🪣" },
+    { id: "obj", x: 680, y: 40, w: 210, h: 56, label: "halo.txt", sub: "ETag · Content-Type", kind: "svc", icon: "📦" },
+    { id: "obj2", x: 680, y: 190, w: 210, h: 56, label: "gambar/2026/kucing.jpg", sub: "prefix = 'folder'", kind: "svc", icon: "📦" }
+  ],
+  steps: [
+    { from: "file", to: "cli", tag: "baca", title: "CLI membaca file lokal", text: "<code>aws s3 cp halo.txt s3://belajar-idris/</code> membaca isi file dari disk." },
+    { from: "cli", to: "api", tag: "PUT /belajar-idris/halo.txt", title: "PutObject", text: "CLI mengirim <code>PUT</code> dengan isi file sebagai body. Header membawa tipe konten dan metadata." },
+    { from: "api", to: "bucket", tag: "simpan", title: "Masuk ke bucket", text: "S3 memastikan bucket ada, lalu menyimpan object di bawah key <code>halo.txt</code>." },
+    { from: "bucket", to: "obj", tag: "object", title: "Object tersimpan", text: "Object = data + metadata. S3 menghitung <b>ETag</b> (sidik jari isi file)." },
+    { from: "api", to: "cli", tag: "200 + ETag", title: "Upload sukses", text: "CLI mencetak <code>upload: ./halo.txt to s3://belajar-idris/halo.txt</code>.", kind: "ok" },
+    { from: "bucket", to: "obj2", tag: "key panjang", title: "Folder hanyalah prefix", text: "Object lain dengan key <code>gambar/2026/kucing.jpg</code> disimpan di level yang <b>sama</b>. Tidak ada folder sungguhan." },
+    { from: "cli", to: "api", tag: "GET /belajar-idris/halo.txt", title: "GetObject", text: "Untuk download, CLI mengirim <code>GET</code> ke key yang sama." },
+    { from: "obj", to: "cli", tag: "isi file", title: "File kembali", text: "Isi file dikirim balik, beserta header <code>ETag</code> dan <code>Content-Length</code>.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>

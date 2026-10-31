@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alur Request — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Cara Kerja › Alur Request</div>
+<h1>Alur Request: Perjalanan Satu Panggilan API</h1>
+<p class="lead">Halaman ini mengikuti satu request dari SDK sampai jawaban kembali, termasuk setiap filter yang dilewati,
+dalam urutan yang sama dengan kode sumber.</p>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Setiap request seperti <b>paket kiriman</b> yang masuk ke gudang sortir:</p>
+<p>1️⃣ Petugas pertama <b>membetulkan label alamat</b> (mis. URL antrean SQS diubah ke format standar).<br>
+2️⃣ Petugas kedua <b>membaca stempel pengirim</b> untuk tahu paket ini milik akun mana.<br>
+3️⃣ Petugas ketiga <b>mengenali jenis paket</b> (protokol) dan layanan tujuannya.<br>
+4️⃣ Bagian keamanan <b>memeriksa tanda tangan dan izin</b> (kalau fitur ini dinyalakan).<br>
+5️⃣ Paket diantar ke <b>loket layanan yang tepat</b>, dikerjakan, dan balasannya diberi nomor resi (<code>request-id</code>) sebelum dikirim balik.</p></div>
+
+<h2>Animasi lengkap: SQS SendMessage</h2>
+<p>Contoh: <code>aws sqs send-message --queue-url http://localhost:4566/000000000000/orders --message-body "halo"</code>
+dengan AWS CLI modern (protokol JSON 1.0).</p>
+<div id="req-flow"></div>
+
+<h2>Urutan filter (dari kode sumber)</h2>
+<p>JAX-RS menjalankan filter berdasarkan anotasi <code>@Priority</code>: angka lebih kecil berjalan lebih dulu.
+Filter <b>pre-matching</b> berjalan sebelum JAX-RS memilih controller, sehingga boleh mengubah path. Filter biasa berjalan setelah controller terpilih.</p>
+
+<h3>A. Filter pre-matching (sebelum routing)</h3>
+<div class="table-wrap"><table>
+<tr><th>Prioritas</th><th>Filter</th><th>Apa yang dikerjakan</th></tr>
+<tr><td>1</td><td><code>MissingHostHeaderFilter</code></td><td>Memberi header <code>Host</code> pada request HTTP/1.0 yang tidak membawanya, agar filter berikutnya tidak gagal.</td></tr>
+<tr><td>5</td><td><code>LambdaUrlRoutingFilter</code></td><td>Mengenali host Function URL Lambda (<code>&lt;id&gt;.lambda-url...</code>) dan mengarahkannya ke invocation.</td></tr>
+<tr><td>9–15</td><td><code>ApiGatewayExecuteApiHostFilter</code>, <code>ApiGatewayCustomDomainFilter</code>, <code>CognitoCustomDomainFilter</code>, <code>CloudFrontDistributionFilter</code></td><td>Routing berdasarkan hostname untuk API Gateway (execute-api), domain kustom, Cognito, dan CloudFront.</td></tr>
+<tr><td>900</td><td><code>AccountContextFilter</code></td><td>Membaca access key dari <code>Authorization</code> (atau <code>X-Amz-Credential</code> untuk presigned URL), menentukan <b>account ID</b> dan <b>region</b>, lalu mengisi <code>RequestContext</code>.</td></tr>
+<tr><td>3000</td><td><code>AwsCborContentTypeFilter</code>, <code>GlobalCorsFilter</code></td><td>Menyimpan content-type CBOR asli; menjawab preflight CORS dari browser.</td></tr>
+<tr><td>5000 (default)</td><td><code>SqsQueueUrlRouterFilter</code>, <code>S3VirtualHostFilter</code>, <code>EmrServerlessRouteFilter</code>, <code>DlmRouteFilter</code>, …</td><td>Menulis ulang path: URL antrean <code>/{akun}/{antrean}</code> → <code>POST /</code>; host <code>bucket.s3.localhost...</code> → path-style <code>/bucket/key</code>.</td></tr>
+<tr><td>6000</td><td><code>AwsProtocolClaimFilter</code></td><td>Memanggil <code>ProtocolClaimer</code> untuk mengenali protokol (rpcv2 CBOR/JSON, JSON 1.0, JSON 1.1, Query, REST). Menolak request REST bertanda tangan untuk layanan yang tidak dikenal.</td></tr>
+</table></div>
+
+<h3>B. Filter setelah routing</h3>
+<div class="table-wrap"><table>
+<tr><th>Prioritas</th><th>Filter</th><th>Apa yang dikerjakan</th></tr>
+<tr><td>800</td><td><code>AwsRouteClaimFilter</code></td><td>Kalau request belum diklaim (mode non-strict), klaim berdasarkan route yang dicapai.</td></tr>
+<tr><td>1000</td><td><code>SigV4HeaderSignatureFilter</code>, <code>S3HeaderSignatureFilter</code>, <code>PreSignedUrlFilter</code></td><td>Verifikasi tanda tangan SigV4 (hanya bila <code>FLOCI_AUTH_VALIDATE_SIGNATURES=true</code> atau IAM enforcement aktif) dan presigned URL S3.</td></tr>
+<tr><td>3100</td><td><code>AwsRestRouteScopeFilter</code></td><td>Memastikan scope tanda tangan cocok dengan layanan REST yang dituju.</td></tr>
+<tr><td>5000 (default)</td><td><code>ServiceEnabledFilter</code></td><td>Menentukan layanan dari klaim / kelas resource / scope SigV4, lalu menolak bila layanan dimatikan (<code>floci.services.&lt;x&gt;.enabled=false</code>).</td></tr>
+<tr><td>5000 (default)</td><td><code>IamEnforcementFilter</code></td><td>Bila <code>FLOCI_SERVICES_IAM_ENFORCEMENT_ENABLED=true</code>: autentikasi kredensial, lalu evaluasi kebijakan identitas, resource policy, SCP, session policy, permission boundary, dan kondisi.</td></tr>
+</table></div>
+
+<h3>C. Filter respons</h3>
+<div class="table-wrap"><table>
+<tr><th>Filter</th><th>Apa yang dikerjakan</th></tr>
+<tr><td><code>AwsRequestIdFilter</code></td><td>Menambah <code>x-amz-request-id</code> (REST/Query), <code>x-amzn-RequestId</code> (JSON), <code>x-amz-id-2</code> (S3).</td></tr>
+<tr><td><code>AwsDateHeaderFilter</code></td><td>Menambah header <code>Date</code> seperti AWS.</td></tr>
+<tr><td><code>AwsRestJsonErrorHeaderFilter</code></td><td>Menambah <code>x-amzn-ErrorType</code> untuk error REST JSON.</td></tr>
+<tr><td><code>S3CorsFilter</code>, <code>S3ContentTypeCharsetFilter</code></td><td>Header CORS per-bucket dan content-type khusus S3.</td></tr>
+</table></div>
+
+<h2>Animasi: request yang ditolak</h2>
+<p>Dua jalur gagal yang paling umum: layanan dimatikan, dan IAM enforcement menolak.</p>
+<div id="deny-flow"></div>
+
+<h2>Error dikembalikan dengan format AWS</h2>
+<p>Service melempar <code>AwsException(code, message, httpStatus)</code>. Bentuk balasannya tergantung protokol:</p>
+<div data-tabs>
+<div class="tabs"><button class="on">Query (XML)</button><button>JSON 1.0 / 1.1</button><button>REST XML (S3)</button></div>
+<div class="tab-panel on"><pre><code>HTTP/1.1 400 Bad Request
+x-amz-request-id: 7f3c...
+
+&lt;ErrorResponse xmlns="http://queue.amazonaws.com/doc/2012-11-05/"&gt;
+  &lt;Error&gt;
+    &lt;Type&gt;Sender&lt;/Type&gt;
+    &lt;Code&gt;AWS.SimpleQueueService.NonExistentQueue&lt;/Code&gt;
+    &lt;Message&gt;The specified queue does not exist.&lt;/Message&gt;
+  &lt;/Error&gt;
+  &lt;RequestId&gt;7f3c...&lt;/RequestId&gt;
+&lt;/ErrorResponse&gt;</code></pre></div>
+<div class="tab-panel"><pre><code>HTTP/1.1 400 Bad Request
+Content-Type: application/x-amz-json-1.0
+x-amzn-RequestId: 9b1e...
+
+{"__type":"com.amazonaws.dynamodb.v20120810#ResourceNotFoundException",
+ "message":"Requested resource not found"}</code></pre></div>
+<div class="tab-panel"><pre><code>HTTP/1.1 404 Not Found
+x-amz-request-id: 4d2a...
+
+&lt;Error&gt;
+  &lt;Code&gt;NoSuchBucket&lt;/Code&gt;
+  &lt;Message&gt;The specified bucket does not exist&lt;/Message&gt;
+  &lt;BucketName&gt;tidak-ada&lt;/BucketName&gt;
+  &lt;RequestId&gt;4d2a...&lt;/RequestId&gt;
+&lt;/Error&gt;</code></pre></div>
+</div>
+
+<h2>Thread dan konkurensi</h2>
+<ul>
+  <li>Request biasa dilayani oleh worker Quarkus/Vert.x.</li>
+  <li>Dispatcher JSON 1.0, CBOR, dan Query berjalan di <b>virtual thread</b> Java, sehingga long-polling (<code>ReceiveMessage</code> SQS hingga 20 detik, <code>GetActivityTask</code> Step Functions hingga 60 detik) tidak memblokir worker bersama.</li>
+  <li>Pekerjaan latar (poller ESM, sweeper TTL, flush storage) memakai timer Vert.x dan primitif seperti <code>KeyedWorkQueue</code> dan <code>VersionedSignal</code> (lihat <code>docs/concurrency.md</code>).</li>
+</ul>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/flow.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("req-flow"), {
+  title: "SQS SendMessage melewati seluruh pipeline",
+  width: 900, height: 470,
+  zones: [
+    { x: 175, y: 8, w: 340, h: 300, label: "Pre-matching" },
+    { x: 530, y: 8, w: 360, h: 300, label: "Setelah routing" },
+    { x: 175, y: 322, w: 715, h: 140, label: "Eksekusi & respons" }
+  ],
+  nodes: [
+    { id: "cli", x: 10, y: 150, w: 145, h: 64, label: "AWS CLI", sub: "SigV4, JSON 1.0", kind: "client", icon: "💻" },
+    { id: "sqsurl", x: 195, y: 40, w: 150, h: 56, label: "SqsQueueUrl\nRouterFilter", kind: "filter" },
+    { id: "acct", x: 195, y: 130, w: 150, h: 56, label: "AccountContext\nFilter", kind: "filter" },
+    { id: "claim", x: 195, y: 220, w: 150, h: 56, label: "AwsProtocol\nClaimFilter", kind: "filter" },
+    { id: "claimer", x: 365, y: 220, w: 135, h: 56, label: "Protocol\nClaimer", kind: "ctrl" },
+    { id: "sig", x: 550, y: 40, w: 150, h: 56, label: "SigV4 Signature\nFilter", sub: "opsional", kind: "filter" },
+    { id: "enabled", x: 550, y: 130, w: 150, h: 56, label: "ServiceEnabled\nFilter", kind: "filter" },
+    { id: "iam", x: 550, y: 220, w: 150, h: 56, label: "IamEnforcement\nFilter", sub: "opsional", kind: "filter" },
+    { id: "ctl", x: 725, y: 130, w: 150, h: 56, label: "AwsJson\nController", sub: "JSON 1.0", kind: "ctrl" },
+    { id: "svc", x: 725, y: 360, w: 150, h: 56, label: "SqsService", sub: "sendMessage()", kind: "svc" },
+    { id: "store", x: 470, y: 360, w: 160, h: 56, label: "Storage", sub: "000000000000/orders", kind: "store", icon: "💾" },
+    { id: "resp", x: 195, y: 360, w: 170, h: 56, label: "AwsRequestId\nFilter", sub: "x-amzn-RequestId", kind: "filter" }
+  ],
+  steps: [
+    { from: "cli", to: "sqsurl", tag: "POST /0000/orders", title: "Request dikirim ke URL antrean", text: "CLI baru mengirim <code>POST /000000000000/orders</code> dengan header <code>X-Amz-Target: AmazonSQS.SendMessage</code>." },
+    { from: "sqsurl", to: "sqsurl", tag: "→ POST /", title: "Path ditulis ulang", text: "<code>SqsQueueUrlRouterFilter</code> mengubah path menjadi <code>POST /</code>. Tanpa ini, request akan tertangkap route S3 <code>/{bucket}/{key}</code> dan gagal dengan <code>NoSuchBucket</code>." },
+    { from: "sqsurl", to: "acct", tag: "AKID", title: "Tentukan akun & region", text: "Dari <code>Credential=test/20261101/us-east-1/sqs/aws4_request</code>: region <code>us-east-1</code>. Access key <code>test</code> bukan 12 digit, jadi akun memakai default <code>000000000000</code>." },
+    { from: "acct", to: "claim", tag: "klaim?", title: "Kenali protokol", text: "Filter mengumpulkan sinyal non-body: method, path, <code>Content-Type</code>, <code>X-Amz-Target</code>, <code>Smithy-Protocol</code>." },
+    { from: "claim", to: "claimer", tag: "json-1.0", title: "ProtocolClaimer memutuskan", text: "Urutan presisi Smithy: rpcv2Cbor → rpcv2Json → <b>awsJson1_0</b> → awsJson1_1 → awsQuery → REST. <code>application/x-amz-json-1.0</code> + target <code>AmazonSQS.</code> = JSON 1.0, layanan <b>sqs</b>." },
+    { from: "claimer", to: "claim", tag: "claim", title: "Hasil klaim disimpan", text: "Klaim disimpan sebagai properti request <code>floci.protocol.claim</code> agar filter berikutnya tidak perlu menebak lagi." },
+    { from: "claim", to: "sig", tag: "routing", title: "JAX-RS memilih controller", text: "Berdasarkan path <code>/</code> dan content-type, route yang cocok adalah <code>AwsJsonController</code>. Lalu filter post-matching berjalan." },
+    { from: "sig", to: "enabled", tag: "skip", title: "Verifikasi tanda tangan (opsional)", text: "Default-nya <b>dilewati</b>. Dengan <code>FLOCI_AUTH_VALIDATE_SIGNATURES=true</code>, Floci menghitung ulang tanda tangan SigV4 dan menolak yang tidak cocok." },
+    { from: "enabled", to: "iam", tag: "sqs ✓", title: "Layanan aktif?", text: "<code>ServiceEnabledFilter</code> mengecek <code>floci.services.sqs.enabled</code>. Aktif, lanjut." },
+    { from: "iam", to: "ctl", tag: "allow", title: "IAM (opsional)", text: "Default IAM enforcement <b>mati</b>, semua diizinkan. Kalau dinyalakan, aksi <code>sqs:SendMessage</code> pada ARN antrean dievaluasi terhadap kebijakan." },
+    { from: "ctl", to: "svc", tag: "SendMessage", title: "Dispatch ke service", text: "Controller membaca JSON <code>{QueueUrl, MessageBody}</code>, lalu memanggil <code>SqsService</code> di virtual thread." },
+    { from: "svc", to: "store", tag: "put", title: "Pesan disimpan", text: "Service menghitung MD5 isi pesan, membuat <code>MessageId</code>, dan menyimpan pesan ke antrean dengan key ber-prefix akun." },
+    { from: "store", to: "svc", tag: "ok", title: "Tersimpan", text: "Storage mengonfirmasi. Jika ada Lambda event source mapping pada antrean ini, poller akan mengambilnya nanti.", kind: "ok" },
+    { from: "svc", to: "resp", tag: "{MessageId,MD5}", title: "Respons dibentuk", text: "Hasil diserialisasi menjadi JSON, lalu filter respons menambahkan <code>x-amzn-RequestId</code> dan <code>Date</code>.", kind: "ok" },
+    { from: "resp", to: "cli", tag: "200 OK", title: "CLI menerima jawaban", text: "CLI mencetak <code>MessageId</code> dan <code>MD5OfMessageBody</code>, persis seperti dari AWS asli.", kind: "ok" }
+  ]
+});
+FlowDiagram.mount(document.getElementById("deny-flow"), {
+  title: "Dua jalur penolakan",
+  width: 860, height: 280,
+  nodes: [
+    { id: "c", x: 20, y: 110, w: 140, h: 60, label: "Klien", kind: "client", icon: "💻" },
+    { id: "en", x: 240, y: 30, w: 170, h: 60, label: "ServiceEnabledFilter", kind: "filter" },
+    { id: "iam", x: 240, y: 190, w: 170, h: 60, label: "IamEnforcementFilter", kind: "filter" },
+    { id: "pol", x: 480, y: 190, w: 160, h: 60, label: "Kebijakan IAM", sub: "identity + resource", kind: "store" },
+    { id: "x1", x: 690, y: 30, w: 150, h: 60, label: "Ditolak", sub: "layanan nonaktif", kind: "ext" },
+    { id: "x2", x: 690, y: 190, w: 150, h: 60, label: "AccessDenied", sub: "403 / 400", kind: "ext" }
+  ],
+  steps: [
+    { from: "c", to: "en", tag: "kinesis", title: "Layanan dimatikan", text: "Misalnya <code>FLOCI_SERVICES_KINESIS_ENABLED=false</code>. Request Kinesis tetap dikenali protokolnya." },
+    { from: "en", to: "x1", tag: "abort", title: "Request dihentikan", text: "<code>ServiceEnabledFilter</code> memanggil <code>abortWith(...)</code> dengan error berformat protokol tersebut. Controller tidak pernah dipanggil.", kind: "err" },
+    { from: "c", to: "iam", tag: "s3:DeleteBucket", title: "IAM enforcement aktif", text: "Dengan <code>FLOCI_SERVICES_IAM_ENFORCEMENT_ENABLED=true</code>, kredensial harus valid (access key IAM atau sesi STS)." },
+    { from: "iam", to: "pol", tag: "evaluate", title: "Evaluasi kebijakan", text: "Floci mengumpulkan kebijakan identitas, resource policy (mis. bucket policy), permission boundary, SCP, dan kondisi seperti <code>aws:SourceIp</code>." },
+    { from: "pol", to: "iam", tag: "Deny", title: "Hasil: tidak ada Allow", text: "Tidak ada statement yang mengizinkan, atau ada Deny eksplisit.", kind: "err" },
+    { from: "iam", to: "x2", tag: "Denied", title: "AccessDenied", text: "Query &amp; S3: HTTP 403 XML <code>AccessDenied</code>. JSON 1.0/1.1: HTTP 400 <code>AccessDeniedException</code>. REST JSON: HTTP 403 <code>AccessDeniedException</code>. SNS: 403 <code>AuthorizationError</code>.", kind: "err" }
+  ]
+});
+</script>
+</body>
+</html>

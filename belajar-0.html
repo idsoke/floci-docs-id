@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modul 0 Persiapan — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-module="0">
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Belajar AWS dari Nol › Modul 0</div>
+<h1>🧰 Modul 0 · Persiapan</h1>
+<div class="learn-meta"><span>⏱ 45–60 menit</span><span>📶 Pemula</span><span>🧩 Docker, AWS CLI, Floci</span></div>
+<div class="mod-progress"><div class="progress"><div></div></div><b></b></div>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Sebelum belajar menyetir, Anda perlu mobil latihan dan kunci kontak. Di sini <b>Floci</b> adalah mobil latihannya
+(AWS tiruan di laptop), <b>AWS CLI</b> adalah setirnya (alat untuk memberi perintah ke AWS lewat terminal), dan
+<b>kredensial</b> adalah kunci kontaknya. Untuk Floci, kuncinya boleh apa saja, misalnya <code>test</code>.</p></div>
+
+<h2>Tujuan modul</h2>
+<ul class="goals">
+  <li>Floci berjalan di <code>http://localhost:4566</code>.</li>
+  <li>AWS CLI v2 terpasang dan diarahkan ke Floci, bukan ke AWS asli.</li>
+  <li>Paham dari mana CLI mengambil kredensial, region, dan endpoint.</li>
+  <li>Python + boto3 siap untuk modul-modul berikutnya.</li>
+</ul>
+
+<h2>Apa yang terjadi saat Anda mengetik perintah AWS?</h2>
+<div id="anim"></div>
+
+<h2>Langkah praktik</h2>
+<div class="note"><strong>Pengguna Windows:</strong> sangat disarankan mengerjakan semua modul di terminal <b>WSL (Ubuntu)</b>.
+Perintah di kursus ini ditulis untuk bash. Tab PowerShell disediakan untuk langkah-langkah penting.</div>
+
+<div class="step" data-id="docker"><div class="step-head"><h3>Pasang dan cek Docker</h3></div>
+<p>Floci dijalankan sebagai container Docker. Di Windows, pasang <b>Docker Desktop</b> dan aktifkan
+<i>Settings → Resources → WSL integration</i> untuk distro Ubuntu Anda. Lalu cek:</p>
+<pre><code>docker version
+docker run --rm hello-world</code></pre>
+<div class="out"><pre><code>Hello from Docker!
+This message shows that your installation appears to be working correctly.
+...</code></pre></div>
+</div>
+
+<div class="step" data-id="cli"><div class="step-head"><h3>Pasang AWS CLI versi 2</h3></div>
+<p>AWS CLI adalah program resmi dari AWS. Kita memakai <b>versi 2</b> karena mendukung variabel <code>AWS_ENDPOINT_URL</code>.</p>
+<div data-tabs>
+<div class="tabs"><button class="on">WSL / Linux</button><button>Windows (PowerShell)</button><button>macOS</button></div>
+<div class="tab-panel on"><pre><code>curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+unzip -q awscliv2.zip
+sudo ./aws/install
+aws --version</code></pre></div>
+<div class="tab-panel"><pre><code>msiexec.exe /i https://awscli.amazonaws.com/AWSCLIV2.msi
+# tutup lalu buka lagi PowerShell, kemudian:
+aws --version</code></pre></div>
+<div class="tab-panel"><pre><code>curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o AWSCLIV2.pkg
+sudo installer -pkg AWSCLIV2.pkg -target /
+aws --version</code></pre></div>
+</div>
+<div class="out"><pre><code>aws-cli/2.x.x Python/3.x.x Linux/... exe/x86_64...</code></pre></div>
+<p>Kalau yang muncul <code>aws-cli/1.x</code>, Anda memakai versi lama. Hapus dulu (<code>pip uninstall awscli</code>) lalu pasang versi 2.</p>
+</div>
+
+<div class="step" data-id="run"><div class="step-head"><h3>Nyalakan Floci</h3></div>
+<p>Perintah ini menjalankan Floci di port 4566. Opsi <code>-v /var/run/docker.sock…</code> dan <code>-u root</code> memberi Floci
+akses ke Docker. Ini <b>wajib untuk Modul 5 (Lambda)</b>, karena setiap fungsi Lambda dijalankan sebagai container.</p>
+<pre><code>docker run -d --name floci \
+  -p 4566:4566 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -u root \
+  floci/floci:latest
+
+docker logs floci | tail -5      # lihat log
+curl -s http://localhost:4566/_floci/health</code></pre>
+<div class="out"><pre><code>{"services":{"s3":"running","sqs":"running", ... },"edition":"community","version":"..."}</code></pre></div>
+<p>Perintah penting lain yang akan sering dipakai:</p>
+<div class="table-wrap"><table>
+<tr><th>Perintah</th><th>Fungsi</th></tr>
+<tr><td><code>docker stop floci</code> / <code>docker start floci</code></td><td>Mematikan / menyalakan lagi</td></tr>
+<tr><td><code>docker rm -f floci</code> lalu <code>docker run …</code> lagi</td><td><b>Reset total</b>: semua bucket, antrean, tabel hilang (mode default menyimpan di memori)</td></tr>
+<tr><td><code>docker logs -f floci</code></td><td>Melihat log secara langsung (Ctrl+C untuk keluar)</td></tr>
+</table></div>
+</div>
+
+<div class="step" data-id="env"><div class="step-head"><h3>Arahkan AWS CLI ke Floci</h3></div>
+<p>Ada dua cara. Pilih <b>salah satu</b>. Cara A paling cepat; cara B lebih rapi untuk jangka panjang.</p>
+<div data-tabs>
+<div class="tabs"><button class="on">A. Variabel lingkungan (bash)</button><button>A. Variabel lingkungan (PowerShell)</button><button>B. Profil ~/.aws</button></div>
+<div class="tab-panel on"><pre><code>export AWS_ENDPOINT_URL=http://localhost:4566
+export AWS_DEFAULT_REGION=us-east-1
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+
+# agar permanen, tambahkan 4 baris di atas ke ~/.bashrc
+</code></pre></div>
+<div class="tab-panel"><pre><code>$env:AWS_ENDPOINT_URL      = "http://localhost:4566"
+$env:AWS_DEFAULT_REGION    = "us-east-1"
+$env:AWS_ACCESS_KEY_ID     = "test"
+$env:AWS_SECRET_ACCESS_KEY = "test"</code></pre></div>
+<div class="tab-panel"><pre><code># ~/.aws/config
+[profile floci]
+region = us-east-1
+endpoint_url = http://localhost:4566
+
+# ~/.aws/credentials
+[floci]
+aws_access_key_id = test
+aws_secret_access_key = test
+
+# lalu aktifkan profilnya:
+export AWS_PROFILE=floci</code></pre></div>
+</div>
+<p>Cek dari mana nilai-nilai diambil:</p>
+<pre><code>aws configure list</code></pre>
+<div class="out"><pre><code>      Name                    Value             Type    Location
+      ----                    -----             ----    --------
+   profile                &lt;not set&gt;             None    None
+access_key     ****************test              env
+secret_key     ****************test              env
+    region                us-east-1              env    AWS_DEFAULT_REGION</code></pre></div>
+<div class="note"><strong>Penting:</strong> tanpa <code>AWS_ENDPOINT_URL</code>, CLI akan menghubungi <b>AWS asli</b> di internet.
+Dengan kredensial <code>test</code> request itu pasti ditolak, jadi aman, tetapi Anda akan bingung melihat errornya.
+Kalau ragu, tambahkan <code>--endpoint-url http://localhost:4566</code> di akhir perintah.</div>
+</div>
+
+<div class="step" data-id="test"><div class="step-head"><h3>Uji koneksi pertama</h3></div>
+<p><code>sts get-caller-identity</code> adalah perintah "siapa saya?". Di AWS asli ini cara cepat mengecek kredensial.</p>
+<pre><code>aws sts get-caller-identity
+aws s3 ls</code></pre>
+<div class="out"><pre><code>{
+    "UserId": "000000000000",
+    "Account": "000000000000",
+    "Arn": "arn:aws:iam::000000000000:root"
+}</code></pre></div>
+<p><code>aws s3 ls</code> tidak mencetak apa-apa karena belum ada bucket. Itu tandanya berhasil. Anda dikenali sebagai
+<b>root</b> (pemilik akun) di akun <code>000000000000</code>.</p>
+</div>
+
+<div class="step" data-id="python"><div class="step-head"><h3>Siapkan Python + boto3</h3></div>
+<p><b>boto3</b> adalah SDK resmi AWS untuk Python. Kode aplikasi memakai SDK, bukan CLI. boto3 juga membaca
+<code>AWS_ENDPOINT_URL</code>, jadi kode yang sama berjalan di Floci maupun AWS asli.</p>
+<pre><code>python3 -m venv ~/belajar-aws          # jika error: sudo apt install python3-venv
+source ~/belajar-aws/bin/activate
+pip install boto3
+
+cat > cek.py &lt;&lt;'EOF'
+import boto3
+sts = boto3.client("sts")
+print(sts.get_caller_identity()["Arn"])
+EOF
+python cek.py</code></pre>
+<div class="out"><pre><code>arn:aws:iam::000000000000:root</code></pre></div>
+</div>
+
+<h2>Kesalahan umum</h2>
+<div class="table-wrap"><table>
+<tr><th>Pesan error</th><th>Penyebab</th><th>Solusi</th></tr>
+<tr><td><code>Could not connect to the endpoint URL: "http://localhost:4566/"</code></td><td>Floci belum menyala</td><td><code>docker ps</code>, lalu <code>docker start floci</code></td></tr>
+<tr><td><code>Unable to locate credentials</code></td><td>Variabel kredensial belum diset di terminal ini</td><td>Ulangi langkah 4 (variabel hilang setiap terminal baru dibuka jika tidak ditaruh di <code>~/.bashrc</code>)</td></tr>
+<tr><td><code>InvalidClientTokenId</code> / <code>InvalidAccessKeyId</code></td><td>Request terkirim ke AWS asli</td><td>Pastikan <code>AWS_ENDPOINT_URL</code> terset: <code>echo $AWS_ENDPOINT_URL</code></td></tr>
+<tr><td><code>port is already allocated</code></td><td>Port 4566 dipakai program lain (mis. LocalStack)</td><td>Matikan program itu, atau pakai <code>-p 4567:4566</code> dan endpoint <code>http://localhost:4567</code></td></tr>
+<tr><td><code>permission denied … docker.sock</code></td><td>User Linux belum boleh memakai Docker</td><td><code>sudo usermod -aG docker $USER</code>, lalu buka terminal baru</td></tr>
+</table></div>
+
+<h2>Latihan mandiri</h2>
+<div class="exercise"><b>Latihan 1.</b> Buka terminal <b>baru</b>, jangan set variabel apa pun, lalu jalankan
+<code>aws s3 ls --endpoint-url http://localhost:4566</code>. Apa yang terjadi, dan kenapa?
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<p>Muncul <code>Unable to locate credentials</code> (atau diminta region). Walaupun Floci menerima kredensial apa pun, AWS CLI
+sendiri <b>menolak mengirim request tanpa kredensial</b>, karena setiap request AWS harus ditandatangani (SigV4).
+Jadi kredensial palsu tetap wajib ada.</p></details></div>
+<div class="exercise"><b>Latihan 2.</b> Ubah <code>AWS_ACCESS_KEY_ID</code> menjadi <code>111111111111</code> (12 digit), lalu jalankan
+<code>aws sts get-caller-identity</code>. Akun apa yang muncul?
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<p><code>"Account": "111111111111"</code>. Floci memakai access key 12 digit sebagai nomor akun. Ini cara mudah
+mensimulasikan <b>beberapa akun AWS</b>: resource di akun 111111111111 tidak terlihat dari akun 000000000000.
+Kembalikan ke <code>test</code> setelah selesai.</p></details></div>
+
+<h2>Kuis</h2>
+<div class="quiz" data-answer="2"><div class="q">1. Apa fungsi <code>AWS_ENDPOINT_URL=http://localhost:4566</code>?</div>
+<button class="opt">Mempercepat koneksi ke AWS asli</button>
+<button class="opt">Menyimpan password AWS</button>
+<button class="opt">Membuat CLI/SDK mengirim request ke Floci, bukan ke AWS di internet</button>
+<div class="why">Endpoint adalah alamat tujuan request. Dengan variabel ini semua layanan diarahkan ke Floci.</div></div>
+<div class="quiz" data-answer="0"><div class="q">2. Kenapa Floci perlu <code>-v /var/run/docker.sock:/var/run/docker.sock</code>?</div>
+<button class="opt">Agar Floci bisa membuat container untuk Lambda, RDS, dan layanan sejenis</button>
+<button class="opt">Agar data tersimpan permanen</button>
+<button class="opt">Agar port 4566 terbuka</button>
+<div class="why">Beberapa layanan dijalankan sebagai container sungguhan. Untuk data permanen dipakai volume <code>/app/data</code> dan mode storage.</div></div>
+<div class="quiz" data-answer="1"><div class="q">3. <code>aws s3 ls</code> tidak mencetak apa pun. Artinya?</div>
+<button class="opt">Error, Floci rusak</button>
+<button class="opt">Berhasil, hanya belum ada bucket</button>
+<button class="opt">Kredensial salah</button>
+<div class="why">Kalau ada error, CLI selalu mencetak pesan error dan keluar dengan kode bukan nol.</div></div>
+
+<h2>Ringkasan</h2>
+<ul>
+  <li>Floci = AWS tiruan di <code>localhost:4566</code>. AWS CLI = alat perintah. boto3 = SDK Python.</li>
+  <li>CLI/SDK butuh 3 hal: <b>kredensial</b>, <b>region</b>, dan (khusus Floci) <b>endpoint</b>.</li>
+  <li>Reset total cukup dengan <code>docker rm -f floci</code> lalu jalankan lagi.</li>
+</ul>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/flow.js"></script>
+<script src="assets/learn.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("anim"), {
+  title: "aws s3 ls: dari terminal sampai jawaban",
+  width: 940, height: 300,
+  zones: [ { x: 4, y: 4, w: 560, h: 292, label: "Laptop Anda" }, { x: 580, y: 4, w: 356, h: 292, label: "Container Docker" } ],
+  nodes: [
+    { id: "you", x: 20, y: 30, w: 140, h: 56, label: "Anda", sub: "mengetik perintah", kind: "client", icon: "🧑‍💻" },
+    { id: "cli", x: 210, y: 120, w: 160, h: 60, label: "AWS CLI v2", sub: "aws s3 ls", kind: "ctrl", icon: "⌨️" },
+    { id: "cfg", x: 20, y: 210, w: 160, h: 60, label: "Konfigurasi", sub: "env / ~/.aws", kind: "store", icon: "📄" },
+    { id: "sign", x: 400, y: 210, w: 150, h: 60, label: "Tanda tangan", sub: "SigV4", kind: "filter", icon: "✍️" },
+    { id: "floci", x: 620, y: 120, w: 170, h: 64, label: "Floci", sub: "localhost:4566", kind: "svc", icon: "☁️" },
+    { id: "aws", x: 620, y: 230, w: 290, h: 46, label: "AWS asli (tidak dihubungi)", kind: "ext", icon: "🚫" }
+  ],
+  steps: [
+    { from: "you", to: "cli", tag: "aws s3 ls", title: "Anda memberi perintah", text: "CLI menerjemahkan <code>s3 ls</code> menjadi operasi API <code>ListBuckets</code>." },
+    { from: "cli", to: "cfg", tag: "baca", title: "CLI membaca konfigurasi", text: "Urutannya: opsi di perintah (<code>--region</code>, <code>--endpoint-url</code>) → variabel lingkungan → file <code>~/.aws/config</code> dan <code>credentials</code>." },
+    { from: "cfg", to: "cli", tag: "test/us-east-1", title: "Nilai ditemukan", text: "Kredensial <code>test/test</code>, region <code>us-east-1</code>, endpoint <code>http://localhost:4566</code>." },
+    { from: "cli", to: "sign", tag: "HMAC", title: "Request ditandatangani", text: "CLI membuat tanda tangan <b>SigV4</b> dengan secret key. AWS asli memakai tanda tangan ini untuk memastikan request benar-benar dari Anda." },
+    { from: "sign", to: "floci", tag: "GET /", title: "Dikirim ke endpoint", text: "Karena endpoint diset, request pergi ke <code>localhost:4566</code>, bukan <code>s3.amazonaws.com</code>." },
+    { from: "floci", to: "cli", tag: "200 XML", title: "Floci menjawab", text: "Floci membalas dengan format XML yang sama seperti S3 asli. CLI mengubahnya menjadi teks yang mudah dibaca.", kind: "ok" },
+    { from: "cli", to: "you", tag: "daftar bucket", title: "Hasil tampil", text: "Anda melihat daftar bucket. Kode dan perintah yang sama akan berjalan di AWS asli: cukup hapus endpoint dan pakai kredensial sungguhan.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>

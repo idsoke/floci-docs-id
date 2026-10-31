@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Konfigurasi &amp; Port — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Referensi › Konfigurasi &amp; Port</div>
+<h1>Konfigurasi &amp; Port</h1>
+<p class="lead">Floci dikonfigurasi lewat variabel lingkungan <code>FLOCI_*</code> (ada lebih dari 270). Halaman ini merangkum yang paling sering dipakai.
+Referensi lengkap ada di <code>docs/configuration/environment-variables.md</code> di repo.</p>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Variabel lingkungan itu seperti <b>sakelar dan kenop</b> di panel kontrol. Nama variabel mengikuti struktur konfigurasi:
+<code>floci.services.lambda.enabled</code> di YAML menjadi <code>FLOCI_SERVICES_LAMBDA_ENABLED</code> (titik dan tanda hubung menjadi garis bawah, huruf besar semua).</p></div>
+
+<h2>Dari mana nilai konfigurasi berasal?</h2>
+<div id="cfg-flow"></div>
+<p class="note"><strong>Catatan penting:</strong> antarmuka <code>EmulatorConfig</code> boleh punya <code>@WithDefault</code>, tapi <code>application.yml</code> yang menentukan perilaku runtime efektif.
+Contoh nyata: default Java storage = <code>hybrid</code>, tapi <code>application.yml</code> image = <code>memory</code>.</p>
+
+<h2>Variabel paling penting</h2>
+<div data-tabs>
+<div class="tabs"><button class="on">Global</button><button>Keamanan</button><button>Storage</button><button>Docker</button><button>Layanan</button><button>Lambda</button></div>
+<div class="tab-panel on"><div class="table-wrap"><table>
+<tr><th>Variabel</th><th>Default</th><th>Keterangan</th></tr>
+<tr><td><code>FLOCI_BASE_URL</code></td><td><code>http://localhost:4566</code></td><td>URL yang ditanam di respons (QueueUrl SQS, presigned URL)</td></tr>
+<tr><td><code>FLOCI_HOSTNAME</code></td><td>—</td><td>Ganti hostname di base URL, mis. <code>floci</code> agar container lain bisa menjangkau lewat DNS Compose</td></tr>
+<tr><td><code>FLOCI_DEFAULT_REGION</code></td><td><code>us-east-1</code></td><td>Region default; juga menentukan partisi</td></tr>
+<tr><td><code>FLOCI_DEFAULT_ACCOUNT_ID</code></td><td><code>000000000000</code></td><td>Akun fallback jika access key bukan 12 digit</td></tr>
+<tr><td><code>FLOCI_DEFAULT_AVAILABILITY_ZONE</code></td><td><code>us-east-1a</code></td><td>AZ di respons EC2 dll.</td></tr>
+<tr><td><code>FLOCI_PARTITIONS_ID</code></td><td>(turunan)</td><td>Paku partisi: <code>aws</code>, <code>aws-cn</code>, <code>aws-us-gov</code>, …</td></tr>
+<tr><td><code>FLOCI_PARTITIONS_STRICT</code></td><td><code>false</code></td><td>Tolak layanan yang tidak ada di partisi tersebut</td></tr>
+</table></div></div>
+<div class="tab-panel"><div class="table-wrap"><table>
+<tr><th>Variabel</th><th>Default</th><th>Keterangan</th></tr>
+<tr><td><code>FLOCI_AUTH_VALIDATE_SIGNATURES</code></td><td><code>false</code></td><td>Verifikasi tanda tangan SigV4</td></tr>
+<tr><td><code>FLOCI_AUTH_PRESIGN_SECRET</code></td><td><code>local-emulator-secret</code></td><td>Secret untuk presigned URL</td></tr>
+<tr><td><code>FLOCI_SERVICES_IAM_ENFORCEMENT_ENABLED</code></td><td><code>false</code></td><td>Evaluasi kebijakan IAM di setiap request</td></tr>
+<tr><td><code>QUARKUS_HTTP_HOST</code></td><td><code>127.0.0.1</code></td><td>Alamat listen</td></tr>
+<tr><td><code>FLOCI_SECURITY_ALLOW_UNSAFE_NETWORK_EXPOSURE</code></td><td><code>false</code></td><td>Izinkan listen di luar loopback</td></tr>
+<tr><td><code>FLOCI_SECURITY_EXTRA_CORS_ALLOWED_ORIGINS</code></td><td>—</td><td>Origin browser tambahan</td></tr>
+<tr><td><code>FLOCI_TLS_ENABLED</code></td><td><code>false</code></td><td>HTTPS + HTTP di port yang sama</td></tr>
+</table></div></div>
+<div class="tab-panel"><div class="table-wrap"><table>
+<tr><th>Variabel</th><th>Default</th><th>Keterangan</th></tr>
+<tr><td><code>FLOCI_STORAGE_MODE</code></td><td><code>memory</code></td><td><code>memory</code> | <code>persistent</code> | <code>hybrid</code> | <code>wal</code></td></tr>
+<tr><td><code>FLOCI_STORAGE_PERSISTENT_PATH</code></td><td><code>/app/data</code> (image)</td><td>Folder data</td></tr>
+<tr><td><code>FLOCI_STORAGE_WAL_COMPACTION_INTERVAL_MS</code></td><td><code>30000</code></td><td>Interval kompaksi WAL</td></tr>
+<tr><td><code>FLOCI_STORAGE_SERVICES_&lt;SVC&gt;_MODE</code></td><td>ikut global</td><td>Override per layanan</td></tr>
+</table></div></div>
+<div class="tab-panel"><div class="table-wrap"><table>
+<tr><th>Variabel</th><th>Default</th><th>Keterangan</th></tr>
+<tr><td><code>FLOCI_DOCKER_DOCKER_HOST</code></td><td><code>unix:///var/run/docker.sock</code></td><td>Alamat Docker daemon</td></tr>
+<tr><td><code>FLOCI_SERVICES_DOCKER_NETWORK</code></td><td>—</td><td>Jaringan Docker untuk semua layanan berbasis container</td></tr>
+<tr><td><code>FLOCI_DOCKER_IMAGE_REGISTRY_BASE</code></td><td>—</td><td>Prefix registry untuk semua image (mirror internal)</td></tr>
+<tr><td><code>FLOCI_DOCKER_LOG_MAX_SIZE</code> / <code>_MAX_FILE</code></td><td><code>10m</code> / <code>3</code></td><td>Rotasi log container anak</td></tr>
+<tr><td><code>FLOCI_DOCKER_RESOURCE_NAMESPACE</code></td><td>—</td><td>Prefix nama container/volume yang dibuat Floci</td></tr>
+</table></div></div>
+<div class="tab-panel"><div class="table-wrap"><table>
+<tr><th>Variabel</th><th>Default</th><th>Keterangan</th></tr>
+<tr><td><code>FLOCI_SERVICES_&lt;SVC&gt;_ENABLED</code></td><td><code>true</code></td><td>Nyalakan/matikan layanan, mis. <code>FLOCI_SERVICES_EKS_ENABLED=false</code></td></tr>
+<tr><td><code>FLOCI_SERVICES_SQS_CLOUDWATCH_METRICS_ENABLED</code></td><td><code>true</code></td><td>Publikasi metrik <code>AWS/SQS</code> tiap menit</td></tr>
+<tr><td><code>FLOCI_SERVICES_S3_LIFECYCLE_SWEEP_ENABLED</code></td><td><code>true</code></td><td>Terapkan aturan lifecycle bucket di latar</td></tr>
+<tr><td><code>FLOCI_SERVICES_UI_ENABLED</code></td><td><code>true</code></td><td>Konsol web sidecar di <code>/_floci/ui</code></td></tr>
+<tr><td><code>FLOCI_SERVICES_UI_PORT</code></td><td><code>4500</code></td><td>Port host konsol</td></tr>
+</table></div></div>
+<div class="tab-panel"><div class="table-wrap"><table>
+<tr><th>Variabel</th><th>Default</th><th>Keterangan</th></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_EPHEMERAL</code></td><td><code>false</code></td><td>Hapus container setiap selesai invoke</td></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_INIT_TIMEOUT_SECONDS</code></td><td><code>10</code></td><td>Budget fase init</td></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_CONTAINER_IDLE_TIMEOUT_SECONDS</code></td><td><code>300</code></td><td>Container idle dimatikan</td></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_HOT_RELOAD_ENABLED</code></td><td><code>false</code></td><td>Mode bind-mount hot reload</td></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_DOCKER_HOST_OVERRIDE</code></td><td>—</td><td>Alamat Runtime API untuk container</td></tr>
+</table></div></div>
+</div>
+
+<h2 id="port">Peta port</h2>
+<div class="table-wrap"><table>
+<tr><th>Port / rentang</th><th>Protokol</th><th>Kegunaan</th><th>Perlu mapping di compose?</th></tr>
+<tr><td><code>4566</code></td><td>HTTP</td><td>Semua API AWS + Docker Distribution ECR</td><td>✅ Ya</td></tr>
+<tr><td><code>4500</code></td><td>HTTP</td><td>Konsol web (sidecar)</td><td>❌ Di-bind Docker langsung</td></tr>
+<tr><td><code>5100–5199</code></td><td>HTTP</td><td>Container registry ECR (loopback)</td><td>❌</td></tr>
+<tr><td><code>5672–5699</code></td><td>AMQP</td><td>Amazon MQ (RabbitMQ)</td><td>❌</td></tr>
+<tr><td><code>6379–6399</code></td><td>TCP</td><td>Proxy ElastiCache Redis (di dalam Floci)</td><td>✅ Ya</td></tr>
+<tr><td><code>6400–6419</code></td><td>TCP</td><td>Proxy MemoryDB</td><td>✅ Ya</td></tr>
+<tr><td><code>6500–6599</code></td><td>HTTPS</td><td>API server k3s (EKS)</td><td>❌</td></tr>
+<tr><td><code>7001–7099</code></td><td>TCP</td><td>Proxy RDS</td><td>✅ Ya</td></tr>
+<tr><td><code>8182–8282</code></td><td>TCP</td><td>Proxy Neptune Gremlin</td><td>✅ Ya</td></tr>
+<tr><td><code>8700–8799</code></td><td>HTTP</td><td>Proxy webserver Airflow (MWAA)</td><td>✅ Ya</td></tr>
+<tr><td><code>9400–9499</code></td><td>HTTP</td><td>Data-plane OpenSearch</td><td>❌</td></tr>
+<tr><td><code>12000–12499</code></td><td>HTTP</td><td>Lambda Runtime API (internal jaringan Docker)</td><td>❌</td></tr>
+<tr><td><code>15672–15699</code></td><td>HTTP</td><td>Konsol manajemen RabbitMQ</td><td>❌</td></tr>
+</table></div>
+
+<h3>Dua pola eksposur port (animasi)</h3>
+<div id="port-flow"></div>
+
+<h2>Varian image Docker</h2>
+<div class="table-wrap"><table>
+<tr><th>Tag</th><th>Isi</th><th>Kapan dipakai</th></tr>
+<tr><td><code>floci/floci:latest</code></td><td>Binary native Floci saja (UBI 9 micro)</td><td>Umum: CI, dev lokal, Testcontainers (direkomendasikan)</td></tr>
+<tr><td><code>floci/floci:latest-compat</code></td><td>Floci + Python 3.12 + AWS CLI + boto3</td><td>Init hooks yang memanggil <code>aws</code>/<code>boto3</code></td></tr>
+<tr><td><code>floci/floci:latest-baseline</code></td><td>Binary untuk ARMv8.0</td><td>ARM64 lama tanpa LSE (kelas Raspberry Pi 4)</td></tr>
+<tr><td><code>x.y.z</code>, <code>x.y.z-compat</code></td><td>Versi yang dipaku</td><td>Build yang reproducible</td></tr>
+<tr><td><code>nightly</code>, <code>nightly-mmddyyyy</code></td><td>Ujung <code>main</code></td><td>Mencoba perbaikan terbaru</td></tr>
+</table></div>
+<p>Rilis terbit tanggal 15 dan hari terakhir tiap bulan. Nightly setiap malam.</p>
+
+<h2>Contoh docker-compose lengkap</h2>
+<pre><code>services:
+  floci:
+    image: floci/floci:latest-compat
+    container_name: floci
+    ports:
+      - "127.0.0.1:4566:4566"          # API AWS
+      - "127.0.0.1:7001-7010:7001-7010" # RDS (opsional)
+      - "127.0.0.1:6379-6385:6379-6385" # ElastiCache (opsional)
+    environment:
+      FLOCI_HOSTNAME: floci
+      FLOCI_DEFAULT_REGION: ap-southeast-3
+      FLOCI_STORAGE_MODE: hybrid
+      FLOCI_SERVICES_DOCKER_NETWORK: floci-net
+      # FLOCI_SERVICES_IAM_ENFORCEMENT_ENABLED: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Lambda, RDS, dll.
+      - ./floci-data:/app/data                     # data persisten
+      - ./init/ready.d:/etc/floci/init/ready.d:ro  # seed otomatis
+    networks: [floci-net]
+
+  app:
+    build: .
+    environment:
+      AWS_ENDPOINT_URL: http://floci:4566
+      AWS_REGION: ap-southeast-3
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    depends_on: [floci]
+    networks: [floci-net]
+
+networks:
+  floci-net:
+    name: floci-net</code></pre>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/flow.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("cfg-flow"), {
+  title: "Lapisan sumber konfigurasi",
+  width: 860, height: 260,
+  nodes: [
+    { id: "def", x: 10, y: 20, w: 190, h: 56, label: "@WithDefault", sub: "EmulatorConfig (Java)", kind: "store" },
+    { id: "yml", x: 10, y: 100, w: 190, h: 56, label: "application.yml", sub: "di dalam image", kind: "store" },
+    { id: "env", x: 10, y: 180, w: 190, h: 56, label: "FLOCI_* env", sub: "docker -e / compose", kind: "client" },
+    { id: "src", x: 290, y: 100, w: 200, h: 60, label: "Quarkus Config", sub: "+ ConfigSource kustom", kind: "ctrl" },
+    { id: "cfg", x: 580, y: 100, w: 260, h: 60, label: "EmulatorConfig", sub: "dipakai semua layanan", kind: "svc", icon: "⚙️" }
+  ],
+  steps: [
+    { from: "def", to: "src", tag: "terendah", title: "Default di kode", text: "Nilai cadangan bila tidak ada sumber lain." },
+    { from: "yml", to: "src", tag: "menimpa", title: "application.yml", text: "Menimpa default Java. Ini yang dianggap sumber kebenaran perilaku runtime." },
+    { from: "env", to: "src", tag: "tertinggi", title: "Variabel lingkungan", text: "Paling kuat. <code>FLOCI_STORAGE_MODE=wal</code> menimpa YAML. Ada juga ConfigSource khusus: <code>HostDefaultsConfigSource</code>, <code>TlsConfigSource</code>, <code>LocalStackParityConfigSource</code> (membaca variabel gaya LocalStack)." },
+    { from: "src", to: "cfg", tag: "inject", title: "Disuntikkan ke layanan", text: "Hasil akhir dipetakan ke antarmuka <code>EmulatorConfig</code> yang disuntikkan via CDI.", kind: "ok" }
+  ]
+});
+FlowDiagram.mount(document.getElementById("port-flow"), {
+  title: "Proxy di dalam Floci vs bind langsung oleh Docker",
+  width: 880, height: 270,
+  nodes: [
+    { id: "h1", x: 10, y: 30, w: 140, h: 54, label: "host:6379", kind: "client" },
+    { id: "f", x: 220, y: 30, w: 180, h: 54, label: "Floci container", sub: "proxy :6379", kind: "ctrl" },
+    { id: "r", x: 480, y: 30, w: 170, h: 54, label: "Redis container", sub: ":6379", kind: "ext" },
+    { id: "h2", x: 10, y: 180, w: 140, h: 54, label: "host:9400", kind: "client" },
+    { id: "os", x: 480, y: 180, w: 170, h: 54, label: "OpenSearch container", sub: ":9200", kind: "ext" },
+    { id: "f2", x: 700, y: 180, w: 170, h: 54, label: "Floci", sub: "via jaringan Docker", kind: "ctrl" }
+  ],
+  steps: [
+    { from: "h1", to: "f", tag: "TCP", title: "Pola 1: proxy di dalam Floci", text: "Aplikasi di host konek ke 6379. Port ini harus dipetakan di <code>ports:</code> compose karena listener ada di container Floci." },
+    { from: "f", to: "r", tag: "forward", title: "Diteruskan ke backend", text: "Proxy meneruskan ke container Redis lewat jaringan Docker. Proxy juga bisa memvalidasi IAM auth/SigV4.", kind: "ok" },
+    { from: "h2", to: "os", tag: "HTTP", title: "Pola 2: bind langsung", text: "Docker sendiri mem-publish port 9400 milik container OpenSearch ke host. Tidak perlu mapping di compose Floci.", kind: "ok" },
+    { from: "f2", to: "os", tag: "internal", title: "Floci bicara lewat jaringan internal", text: "Floci menjangkau container dengan nama + port internal, mis. <code>floci-aws-opensearch-x:9200</code>." }
+  ]
+});
+</script>
+</body>
+</html>

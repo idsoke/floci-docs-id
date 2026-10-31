@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Protokol AWS — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Cara Kerja › Protokol AWS</div>
+<h1>Protokol AWS (Wire Protocol)</h1>
+<p class="lead">AWS tidak memakai satu format API saja. Ada lima keluarga protokol, dan Floci harus fasih semuanya
+supaya SDK resmi bisa dipakai tanpa diubah.</p>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Anggap protokol sebagai <b>jenis formulir</b>. Ada kantor yang meminta formulir isian kotak-kotak (Query),
+ada yang meminta surat berformat JSON dengan perihal di amplop (JSON 1.1), ada yang memakai alamat rumah sebagai petunjuk (REST).
+Floci punya petugas yang bisa melihat amplop dari luar dan langsung tahu formulir jenis apa di dalamnya, <b>tanpa perlu membukanya</b>.</p></div>
+
+<h2>Lima keluarga protokol</h2>
+<div class="table-wrap"><table>
+<tr><th>Protokol</th><th>Bentuk request</th><th>Bentuk respons</th><th>Contoh layanan</th><th>Dispatcher di Floci</th></tr>
+<tr><td><span class="pill p-query">Query</span></td><td>POST form-encoded, parameter <code>Action=</code> &amp; <code>Version=</code></td><td>XML</td><td>SQS (lama), SNS, IAM, STS, RDS, ElastiCache, CloudFormation, CloudWatch, EC2, ELB</td><td><code>AwsQueryController</code></td></tr>
+<tr><td><span class="pill p-json">JSON 1.0</span></td><td>POST <code>/</code>, <code>Content-Type: application/x-amz-json-1.0</code>, header <code>X-Amz-Target</code></td><td>JSON</td><td>DynamoDB, SQS (SDK baru), Step Functions, SWF</td><td><code>AwsJsonController</code></td></tr>
+<tr><td><span class="pill p-json">JSON 1.1</span></td><td>POST <code>/</code>, <code>application/x-amz-json-1.1</code>, <code>X-Amz-Target</code></td><td>JSON</td><td>SSM, KMS, CloudWatch Logs, EventBridge, Kinesis, Cognito, Secrets Manager, ECS, ECR</td><td><code>AwsJson11Controller</code></td></tr>
+<tr><td><span class="pill p-rest">REST JSON</span></td><td>Method + path bermakna (<code>GET /2015-03-31/functions/f</code>)</td><td>JSON</td><td>Lambda, API Gateway, SES v2, EKS, S3 Tables</td><td>Controller JAX-RS per layanan</td></tr>
+<tr><td><span class="pill p-xml">REST XML</span></td><td>Method + path (<code>PUT /bucket/key</code>), banyak header</td><td>XML</td><td>S3, Route 53, CloudFront</td><td><code>S3Controller</code>, dll.</td></tr>
+<tr><td><span class="pill p-other">CBOR / RPC v2</span></td><td>POST <code>/service/X/operation/Y</code>, <code>Smithy-Protocol: rpc-v2-cbor</code></td><td>CBOR biner</td><td>DynamoDB, SQS, SNS, Kinesis, Step Functions, CloudWatch</td><td><code>AwsJsonCborController</code></td></tr>
+<tr><td><span class="pill p-other">TCP</span></td><td>Protokol asli database/cache</td><td>Native</td><td>RDS, ElastiCache, MemoryDB, Neptune</td><td>Proxy TCP</td></tr>
+</table></div>
+
+<h2>Contoh bentuk request yang sesungguhnya</h2>
+<div data-tabs>
+<div class="tabs"><button class="on">Query</button><button>JSON 1.0</button><button>JSON 1.1</button><button>REST JSON</button><button>REST XML</button><button>RPC v2 CBOR</button></div>
+<div class="tab-panel on"><pre><code>POST / HTTP/1.1
+Host: localhost:4566
+Content-Type: application/x-www-form-urlencoded
+Authorization: AWS4-HMAC-SHA256 Credential=test/20261101/us-east-1/sns/aws4_request, ...
+
+Action=CreateTopic&amp;Name=pesanan&amp;Version=2010-03-31</code></pre>
+<p>Balasan berupa XML: <code>&lt;CreateTopicResponse&gt;&lt;CreateTopicResult&gt;&lt;TopicArn&gt;arn:aws:sns:...&lt;/TopicArn&gt;...</code></p></div>
+<div class="tab-panel"><pre><code>POST / HTTP/1.1
+Content-Type: application/x-amz-json-1.0
+X-Amz-Target: DynamoDB_20120810.PutItem
+
+{"TableName":"users","Item":{"pk":{"S":"u1"},"nama":{"S":"Idris"}}}</code></pre></div>
+<div class="tab-panel"><pre><code>POST / HTTP/1.1
+Content-Type: application/x-amz-json-1.1
+X-Amz-Target: AmazonSSM.PutParameter
+
+{"Name":"/app/db/url","Value":"jdbc:postgresql://...","Type":"String"}</code></pre></div>
+<div class="tab-panel"><pre><code>POST /2015-03-31/functions/halo/invocations HTTP/1.1
+Content-Type: application/json
+X-Amz-Invocation-Type: RequestResponse
+
+{"nama":"dunia"}</code></pre></div>
+<div class="tab-panel"><pre><code>PUT /bucket-saya/laporan/2026.csv HTTP/1.1
+Content-Type: text/csv
+x-amz-content-sha256: UNSIGNED-PAYLOAD
+x-amz-meta-pemilik: idris
+
+tanggal,total
+2026-11-01,1500</code></pre>
+<p>Atau gaya <i>virtual-host</i>: <code>Host: bucket-saya.s3.localhost.floci.io:4566</code>, yang ditulis ulang oleh <code>S3VirtualHostFilter</code> menjadi path-style.</p></div>
+<div class="tab-panel"><pre><code>POST /service/DynamoDB_20120810/operation/GetItem HTTP/1.1
+Smithy-Protocol: rpc-v2-cbor
+Content-Type: application/cbor
+
+&lt;biner CBOR&gt;</code></pre></div>
+</div>
+
+<h2>Animasi: bagaimana Floci mengenali protokol</h2>
+<p><code>ProtocolClaimer</code> mengikuti panduan <i>Smithy wire-protocol selection</i>. Ia hanya membaca sinyal di luar body
+(method, path, header, query) sehingga aman dijalankan di filter pre-matching tanpa menyentuh isi request.</p>
+<div id="claim-flow"></div>
+
+<h3>Urutan presisi pemeriksaan</h3>
+<ol class="steps">
+  <li><b>Smithy-Protocol header ada?</b> Jika ya, ini sinyal eksklusif rpcv2. Harus <code>POST</code> dan path cocok <code>.../service/{S}/operation/{O}</code>. Nilai tidak dikenal → tidak bisa diklaim (tidak jatuh ke protokol lain).</li>
+  <li><b>rpcv2 CBOR</b> (<code>application/cbor</code>) lalu <b>rpcv2 JSON</b>.</li>
+  <li><b>awsJson1_0</b>: <code>application/x-amz-json-1.0</code> + <code>X-Amz-Target</code>.</li>
+  <li><b>awsJson1_1</b>: <code>application/x-amz-json-1.1</code> + <code>X-Amz-Target</code>.</li>
+  <li><b>awsQuery</b>: <code>POST /</code> dengan form-encoded, atau GET Query bertanda tangan (ditulis ulang ke path GET Query internal).</li>
+  <li><b>REST</b>: selain itu. Layanan ditentukan dari route JAX-RS yang cocok.</li>
+</ol>
+<p class="note"><strong>Mode strict:</strong> request yang membawa sinyal RPC tapi tidak bisa diklaim akan dicatat di log. Dengan
+<code>floci.protocols.strict-claiming=true</code>, request itu ditolak 404 <code>UnknownOperationException</code>. Tanpa mode strict, <code>AwsRouteClaimFilter</code> mengklaimnya berdasarkan route yang tercapai.</p>
+
+<h2>Cara Query menentukan layanan</h2>
+<p>Banyak layanan Query sama-sama memakai <code>POST /</code> dengan form. <code>AwsQueryController</code> membedakannya dengan:</p>
+<ol>
+  <li><b>Scope kredensial SigV4</b>: <code>Credential=.../us-east-1/<b>sns</b>/aws4_request</code> → layanan SNS.</li>
+  <li>Jika tidak ada header atau scope-nya bukan layanan Query: dari nama <code>Action</code> dan <code>Version</code> yang dideklarasikan (<code>inferServiceFromAction</code>).</li>
+</ol>
+
+<h2>Satu layanan, beberapa protokol</h2>
+<p>Beberapa layanan menerima lebih dari satu protokol. Contoh dari <code>ResolvedServiceCatalog</code>:</p>
+<pre><code>descriptor("sqs", "sqs", config.services().sqs().enabled(), true,
+        "sqs", storageMode(...),
+        5000L, AwsNamespaces.SQS, ServiceProtocol.QUERY,               // protokol default
+        protocols(ServiceProtocol.QUERY, ServiceProtocol.JSON, ServiceProtocol.CBOR),
+        Set.of("AmazonSQS."),   // prefix X-Amz-Target
+        Set.of("sqs"),          // nama signing SigV4
+        Set.of("SQS"), Set.of())</code></pre>
+<p>Aturan proyek: jalur alternatif ini <b>tidak boleh "melenceng"</b>. Kalau Anda memperbaiki perilaku SQS di jalur Query,
+jalur JSON dan CBOR harus menghasilkan hasil yang sama. Begitu juga CloudWatch Metrics (Query + JSON 1.1).</p>
+
+<h2>Aturan format yang wajib diikuti kontributor</h2>
+<ul>
+  <li>XML dibuat dengan <code>XmlBuilder</code> dan dibaca dengan <code>XmlParser</code>. <b>Jangan pakai regex.</b></li>
+  <li>Namespace XML diambil dari konstanta <code>AwsNamespaces</code>.</li>
+  <li>Timestamp JSON: periksa <code>TimestampFormatTrait</code> di model SDK. Default awsJson1.1 adalah epoch-seconds, tapi model bisa menimpanya per member. AWS CLI tidak peduli, tapi SDK Go/Java akan menolak seluruh respons jika formatnya salah.</li>
+  <li>Error JSON harus mengikuti struktur <code>{"__type": ..., "message": ...}</code>.</li>
+  <li>Jangan pernah membuat bentuk endpoint kustom atau mengubah format demi kemudahan.</li>
+</ul>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/flow.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("claim-flow"), {
+  title: "Pohon keputusan ProtocolClaimer",
+  width: 900, height: 430,
+  nodes: [
+    { id: "in", x: 10, y: 185, w: 130, h: 60, label: "Request", sub: "method/path/header", kind: "client", icon: "📩" },
+    { id: "smithy", x: 175, y: 30, w: 160, h: 56, label: "Smithy-Protocol?", kind: "filter" },
+    { id: "j10", x: 175, y: 130, w: 160, h: 56, label: "json-1.0 +\nX-Amz-Target?", kind: "filter" },
+    { id: "j11", x: 175, y: 230, w: 160, h: 56, label: "json-1.1 +\nX-Amz-Target?", kind: "filter" },
+    { id: "q", x: 175, y: 330, w: 160, h: 56, label: "POST / form?", kind: "filter" },
+    { id: "cat", x: 400, y: 185, w: 160, h: 60, label: "ServiceCatalog", sub: "matchTarget(prefix)", kind: "store", icon: "📒" },
+    { id: "cbor", x: 640, y: 20, w: 240, h: 50, label: "AwsJsonCborController", kind: "ctrl" },
+    { id: "jc", x: 640, y: 110, w: 240, h: 50, label: "AwsJsonController", kind: "ctrl" },
+    { id: "j11c", x: 640, y: 200, w: 240, h: 50, label: "AwsJson11Controller", kind: "ctrl" },
+    { id: "qc", x: 640, y: 290, w: 240, h: 50, label: "AwsQueryController", kind: "ctrl" },
+    { id: "rest", x: 640, y: 370, w: 240, h: 50, label: "Controller REST", sub: "S3, Lambda, APIGW", kind: "ctrl" }
+  ],
+  steps: [
+    { from: "in", to: "smithy", tag: "cek 1", title: "Cek header Smithy-Protocol", text: "Paling presisi dulu. Contoh: request DynamoDB dari SDK terbaru dengan <code>Smithy-Protocol: rpc-v2-cbor</code>." },
+    { from: "smithy", to: "cbor", tag: "rpcv2", title: "Ada → RPC v2", text: "Path <code>/service/DynamoDB_20120810/operation/GetItem</code> cocok. Diklaim <b>RPCV2_CBOR</b>, diteruskan ke dispatcher CBOR.", kind: "ok" },
+    { from: "in", to: "j10", tag: "cek 3", title: "Request lain: JSON 1.0?", text: "Contoh: <code>Content-Type: application/x-amz-json-1.0</code>, <code>X-Amz-Target: DynamoDB_20120810.Query</code>." },
+    { from: "j10", to: "cat", tag: "DynamoDB_20120810.", title: "Cocokkan prefix target", text: "<code>ServiceCatalog.matchTarget()</code> mencari descriptor yang punya prefix target ini → layanan <b>dynamodb</b>, action <b>Query</b>." },
+    { from: "cat", to: "jc", tag: "json-1.0", title: "→ AwsJsonController", text: "Diklaim JSON 1.0 dan dikirim ke dispatcher JSON 1.0.", kind: "ok" },
+    { from: "in", to: "j11", tag: "cek 4", title: "JSON 1.1?", text: "Contoh: <code>X-Amz-Target: TrentService.Encrypt</code> (KMS)." },
+    { from: "j11", to: "cat", tag: "TrentService.", title: "Prefix → kms", text: "Katalog memetakan <code>TrentService.</code> ke layanan <b>kms</b>." },
+    { from: "cat", to: "j11c", tag: "kms", title: "→ AwsJson11Controller", text: "<code>switch(serviceKey)</code> memanggil <code>kmsJsonHandler.handle(\"Encrypt\", ...)</code>.", kind: "ok" },
+    { from: "in", to: "q", tag: "cek 5", title: "Query?", text: "<code>POST /</code> dengan <code>application/x-www-form-urlencoded</code>, mis. <code>Action=CreateRole</code>." },
+    { from: "q", to: "qc", tag: "awsQuery", title: "→ AwsQueryController", text: "Layanan ditentukan dari scope SigV4 (<code>/iam/</code>), atau dari Action + Version.", kind: "ok" },
+    { from: "in", to: "rest", tag: "REST", title: "Sisanya: REST", text: "Tidak ada sinyal RPC. JAX-RS mencocokkan route: <code>PUT /bucket/key</code> → S3, <code>/2015-03-31/functions</code> → Lambda.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>

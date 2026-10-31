@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modul 5 Lambda — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-module="5">
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Belajar AWS dari Nol › Modul 5</div>
+<h1>λ Modul 5 · Lambda: Kode Tanpa Server</h1>
+<div class="learn-meta"><span>⏱ 90 menit</span><span>📶 Menengah</span><span>🧩 AWS Lambda + CloudWatch Logs</span></div>
+<div class="mod-progress"><div class="progress"><div></div></div><b></b></div>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Biasanya untuk menjalankan program Anda menyewa server yang menyala 24 jam, meski sering menganggur. <b>Lambda</b> seperti
+<b>tukang panggilan</b>: Anda menitipkan "resep kerja" (kode), dan tukang itu baru datang ketika dipanggil (ada <b>event</b>),
+bekerja beberapa detik, lalu pergi. Anda hanya membayar selama ia bekerja.</p>
+<p>Di Floci, setiap "tukang" adalah <b>container Docker</b> yang memakai image runtime resmi AWS. Karena itu Floci harus
+dijalankan dengan akses ke <code>docker.sock</code> (lihat Modul 0).</p></div>
+
+<h2>Tujuan modul</h2>
+<ul class="goals">
+  <li>Menulis handler Python, mengemas, dan men-deploy fungsi.</li>
+  <li>Memanggil (invoke) fungsi dan membaca log-nya.</li>
+  <li>Memakai environment variable dan memperbarui kode.</li>
+  <li>Memahami error fungsi, cold start, dan warm start.</li>
+  <li>Membuat fungsi otomatis berjalan setiap ada pesan SQS (event source mapping).</li>
+</ul>
+
+<h2>Konsep kunci</h2>
+<div class="table-wrap"><table>
+<tr><th>Istilah</th><th>Arti</th></tr>
+<tr><td><b>Handler</b></td><td>Fungsi yang dipanggil Lambda: <code>def handler(event, context)</code>. Ditulis sebagai <code>namafile.namafungsi</code>, mis. <code>app.handler</code>.</td></tr>
+<tr><td><b>Event</b></td><td>Data masukan (JSON). Isinya tergantung pemicunya: payload manual, pesan SQS, notifikasi S3, …</td></tr>
+<tr><td><b>Runtime</b></td><td>Bahasa + versi: <code>python3.12</code>, <code>nodejs22.x</code>, <code>java21</code>, …</td></tr>
+<tr><td><b>Execution role</b></td><td>Role IAM yang izinnya dipakai kode fungsi saat memanggil layanan lain</td></tr>
+<tr><td><b>Cold / warm start</b></td><td>Cold: container harus dibuat dulu (lambat). Warm: container lama dipakai ulang (cepat).</td></tr>
+<tr><td><b>Timeout</b></td><td>Batas waktu eksekusi (default 3 detik, maksimal 15 menit)</td></tr>
+<tr><td><b>Event source mapping</b></td><td>Lambda sendiri yang menarik pesan dari SQS/Kinesis/DynamoDB Streams lalu memanggil fungsi</td></tr>
+</table></div>
+
+<h2>Animasi: invoke pertama vs berikutnya</h2>
+<div id="anim"></div>
+
+<h2>Langkah praktik</h2>
+<div class="note"><strong>Cek dulu:</strong> Floci harus berjalan dengan <code>-v /var/run/docker.sock:/var/run/docker.sock -u root</code>.
+Invoke pertama akan mengunduh image <code>public.ecr.aws/lambda/python:3.12</code> (±200 MB), jadi tunggu beberapa saat.</div>
+
+<div class="step" data-id="code"><div class="step-head"><h3>Tulis kode dan kemas jadi ZIP</h3></div>
+<pre><code>mkdir -p fungsi-halo &amp;&amp; cd fungsi-halo
+cat &gt; app.py &lt;&lt;'EOF'
+import json, os
+
+def handler(event, context):
+    nama = event.get("nama", "teman")
+    sapaan = os.environ.get("SAPAAN", "Halo")
+    print(f"menerima event: {json.dumps(event)}")      # masuk ke CloudWatch Logs
+    return {"pesan": f"{sapaan}, {nama}!", "sisa_waktu_ms": context.get_remaining_time_in_millis()}
+EOF
+
+zip fungsi.zip app.py                       # atau: python3 -m zipfile -c fungsi.zip app.py</code></pre>
+<div class="out"><pre><code>  adding: app.py (deflated 30%)</code></pre></div>
+</div>
+
+<div class="step" data-id="create"><div class="step-head"><h3>Deploy fungsi</h3></div>
+<pre><code>aws lambda create-function \
+  --function-name halo \
+  --runtime python3.12 \
+  --handler app.handler \
+  --role arn:aws:iam::000000000000:role/lambda-role \
+  --zip-file fileb://fungsi.zip \
+  --timeout 10 \
+  --query '{nama: FunctionName, state: State, runtime: Runtime}'</code></pre>
+<div class="out"><pre><code>{
+    "nama": "halo",
+    "state": "Active",
+    "runtime": "python3.12"
+}</code></pre></div>
+<p><code>fileb://</code> artinya "baca file ini sebagai biner". Di AWS asli role <code>lambda-role</code> harus benar-benar ada;
+Floci menerima ARN role apa pun selama formatnya benar. Di AWS asli status awalnya bisa <code>Pending</code>: pakai
+<code>aws lambda wait function-active-v2 --function-name halo</code>.</p>
+</div>
+
+<div class="step" data-id="invoke"><div class="step-head"><h3>Panggil fungsi (invoke)</h3></div>
+<pre><code>time aws lambda invoke --function-name halo \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"nama": "Idris"}' hasil.json
+cat hasil.json; echo
+
+time aws lambda invoke --function-name halo \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"nama": "Sari"}' hasil.json      # kedua kali: jauh lebih cepat
+
+docker ps --format '{{.Names}}  {{.Image}}'    # lihat container fungsi</code></pre>
+<div class="out"><pre><code>{
+    "StatusCode": 200,
+    "ExecutedVersion": "$LATEST"
+}
+real    0m8.4s          ← cold start (termasuk pull image pertama kali)
+{"pesan": "Halo, Idris!", "sisa_waktu_ms": 9987}
+...
+real    0m0.6s          ← warm start
+floci-lambda-halo-…  public.ecr.aws/lambda/python:3.12
+floci                floci/floci:latest</code></pre></div>
+<p><code>--cli-binary-format raw-in-base64-out</code> wajib di CLI v2 agar payload JSON tidak dianggap base64.
+Nama container persisnya bisa berbeda.</p>
+</div>
+
+<div class="step" data-id="logs"><div class="step-head"><h3>Baca log</h3></div>
+<p><code>print()</code> di fungsi masuk ke <b>CloudWatch Logs</b>, grup <code>/aws/lambda/halo</code>.</p>
+<pre><code># Cara 1: ambil 4 KB log terakhir langsung dari invoke
+aws lambda invoke --function-name halo --cli-binary-format raw-in-base64-out \
+  --payload '{"nama": "Log"}' --log-type Tail --query LogResult --output text hasil.json | base64 -d
+
+# Cara 2: baca dari CloudWatch Logs
+aws logs tail /aws/lambda/halo --since 10m</code></pre>
+<div class="out"><pre><code>START RequestId: 3c2a… Version: $LATEST
+menerima event: {"nama": "Log"}
+END RequestId: 3c2a…
+REPORT RequestId: 3c2a…  Duration: 1.52 ms  Billed Duration: 2 ms  Memory Size: 128 MB …</code></pre></div>
+<p>Baris <code>REPORT</code> menunjukkan durasi dan memori, dasar perhitungan biaya Lambda di AWS asli.</p>
+</div>
+
+<div class="step" data-id="update"><div class="step-head"><h3>Environment variable dan update kode</h3></div>
+<pre><code>aws lambda update-function-configuration --function-name halo \
+  --environment 'Variables={SAPAAN=Selamat pagi}' --query Environment
+
+aws lambda invoke --function-name halo --cli-binary-format raw-in-base64-out \
+  --payload '{"nama": "Idris"}' hasil.json &gt;/dev/null &amp;&amp; cat hasil.json; echo
+
+# ubah kode: tambahkan huruf besar
+sed -i 's/{nama}!/{nama.upper()}!/' app.py
+zip -q fungsi.zip app.py
+aws lambda update-function-code --function-name halo --zip-file fileb://fungsi.zip --query LastUpdateStatus
+aws lambda invoke --function-name halo --cli-binary-format raw-in-base64-out \
+  --payload '{"nama": "Idris"}' hasil.json &gt;/dev/null &amp;&amp; cat hasil.json; echo</code></pre>
+<div class="out"><pre><code>{ "Variables": { "SAPAAN": "Selamat pagi" } }
+{"pesan": "Selamat pagi, Idris!", "sisa_waktu_ms": 9991}
+"Successful"
+{"pesan": "Selamat pagi, IDRIS!", "sisa_waktu_ms": 9990}</code></pre></div>
+<p>Konfigurasi seperti URL database atau nama tabel sebaiknya diletakkan di environment variable, bukan ditulis di kode.</p>
+</div>
+
+<div class="step" data-id="error"><div class="step-head"><h3>Saat fungsi error</h3></div>
+<pre><code>aws lambda invoke --function-name halo --cli-binary-format raw-in-base64-out \
+  --payload '"bukan objek"' hasil.json
+cat hasil.json; echo</code></pre>
+<div class="out"><pre><code>{
+    "StatusCode": 200,
+    "FunctionError": "Unhandled",
+    "ExecutedVersion": "$LATEST"
+}
+{"errorMessage": "'str' object has no attribute 'get'", "errorType": "AttributeError", "stackTrace": [ … ]}</code></pre></div>
+<p>Perhatikan: <code>StatusCode</code> tetap <b>200</b>, karena pemanggilannya berhasil walau kode Anda gagal. Tanda error-nya ada di
+<code>FunctionError</code>. Ini sering mengecoh pemula: <b>selalu periksa <code>FunctionError</code></b>.</p>
+</div>
+
+<div class="step" data-id="esm"><div class="step-head"><h3>Dipicu otomatis oleh SQS</h3></div>
+<pre><code>cat &gt; pekerja.py &lt;&lt;'EOF'
+import json
+
+def handler(event, context):
+    for rec in event["Records"]:
+        pesanan = json.loads(rec["body"])
+        print(f"memproses pesanan #{pesanan['id']}: {pesanan['menu']}")
+    return {"diproses": len(event["Records"])}
+EOF
+zip -q pekerja.zip pekerja.py
+
+aws lambda create-function --function-name pekerja --runtime python3.12 \
+  --handler pekerja.handler --role arn:aws:iam::000000000000:role/lambda-role \
+  --zip-file fileb://pekerja.zip --query State
+
+aws sqs create-queue --queue-name tugas &gt;/dev/null
+QARN=$(aws sqs get-queue-attributes --queue-url http://localhost:4566/000000000000/tugas \
+  --attribute-names QueueArn --query Attributes.QueueArn --output text)
+aws lambda create-event-source-mapping --function-name pekerja \
+  --event-source-arn $QARN --batch-size 5 --query State
+
+for i in 1 2 3; do
+  aws sqs send-message --queue-url http://localhost:4566/000000000000/tugas \
+    --message-body "{\"id\": $i, \"menu\": \"menu-$i\"}" &gt;/dev/null
+done
+sleep 5
+aws logs tail /aws/lambda/pekerja --since 5m | grep memproses</code></pre>
+<div class="out"><pre><code>"Active"
+"Enabled"             ← di AWS asli: "Creating" dulu, lalu "Enabled"
+… memproses pesanan #1: menu-1
+… memproses pesanan #2: menu-2
+… memproses pesanan #3: menu-3</code></pre></div>
+<p>Anda tidak memanggil fungsi sama sekali. Lambda (di sini Floci) yang <b>menarik</b> pesan dari antrean, memanggil fungsi
+dengan batch berisi pesan, lalu <b>menghapus pesan jika fungsi sukses</b>. Jika fungsi error, pesan kembali ke antrean
+(visibility timeout, Modul 2).</p>
+</div>
+
+<h2>Kesalahan umum</h2>
+<div class="table-wrap"><table>
+<tr><th>Gejala</th><th>Penyebab</th></tr>
+<tr><td>Invoke sangat lama atau gagal pull image</td><td>Floci tidak bisa mengakses Docker (<code>docker.sock</code> tidak di-mount) atau internet lambat saat mengunduh image runtime</td></tr>
+<tr><td><code>Runtime.ImportModuleError: No module named 'app'</code></td><td>Nama file di ZIP tidak cocok dengan handler, atau file ada di dalam subfolder ZIP</td></tr>
+<tr><td><code>Runtime.HandlerNotFound</code></td><td>Nama fungsi di handler salah (mis. <code>app.main</code> padahal fungsinya <code>handler</code>)</td></tr>
+<tr><td><code>Task timed out after 3.00 seconds</code></td><td>Timeout default 3 detik. Naikkan dengan <code>--timeout</code>.</td></tr>
+<tr><td><code>Invalid base64</code> saat invoke</td><td>Lupa <code>--cli-binary-format raw-in-base64-out</code></td></tr>
+<tr><td><code>ResourceConflictException</code></td><td>Fungsi dengan nama itu sudah ada. Pakai <code>update-function-code</code>.</td></tr>
+</table></div>
+
+<h2>Latihan mandiri</h2>
+<div class="exercise"><b>Latihan 1.</b> Buat fungsi <code>kalkulator</code> yang menerima <code>{"a": 3, "b": 4, "op": "+"}</code> dan mengembalikan hasilnya.
+Dukung <code>+ - * /</code>, dan kembalikan pesan error yang rapi jika membagi dengan nol.
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<pre><code>cat &gt; kalk.py &lt;&lt;'EOF'
+import operator
+OPS = {"+": operator.add, "-": operator.sub, "*": operator.mul, "/": operator.truediv}
+
+def handler(event, context):
+    try:
+        return {"hasil": OPS[event["op"]](event["a"], event["b"])}
+    except ZeroDivisionError:
+        return {"error": "tidak bisa membagi dengan nol"}
+    except KeyError as e:
+        return {"error": f"parameter tidak dikenal: {e}"}
+EOF
+zip -q kalk.zip kalk.py
+aws lambda create-function --function-name kalkulator --runtime python3.12 --handler kalk.handler \
+  --role arn:aws:iam::000000000000:role/lambda-role --zip-file fileb://kalk.zip &gt;/dev/null
+aws lambda invoke --function-name kalkulator --cli-binary-format raw-in-base64-out \
+  --payload '{"a": 10, "b": 0, "op": "/"}' h.json &gt;/dev/null; cat h.json</code></pre>
+<p>Error yang ditangani di kode menghasilkan respons normal (tanpa <code>FunctionError</code>).</p></details></div>
+<div class="exercise"><b>Latihan 2.</b> Ubah fungsi <code>pekerja</code> agar <b>error</b> untuk pesanan dengan id genap. Kirim pesan id 2. Apa yang terjadi dengan pesannya?
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<p>Tambahkan <code>if pesanan["id"] % 2 == 0: raise ValueError("gagal")</code>, kemas ulang, lalu <code>update-function-code</code>.
+Pesan id 2 terus dicoba ulang: setiap kali gagal, pesan kembali ke antrean setelah visibility timeout. Log menunjukkan error berulang.
+Solusinya: pasang DLQ di antrean <code>tugas</code> (RedrivePolicy, Modul 2) agar pesan beracun dipindahkan setelah N kali gagal.</p></details></div>
+
+<h2>Kuis</h2>
+<div class="quiz" data-answer="2"><div class="q">1. Invoke mengembalikan <code>StatusCode: 200</code> dan <code>FunctionError: Unhandled</code>. Artinya?</div>
+<button class="opt">Semua berjalan lancar</button>
+<button class="opt">Lambda tidak bisa dihubungi</button>
+<button class="opt">Pemanggilan sampai, tetapi kode Anda melempar exception</button>
+<div class="why">Status 200 = layanan Lambda menerima request. <code>FunctionError</code> = kode Anda yang gagal.</div></div>
+<div class="quiz" data-answer="0"><div class="q">2. Kenapa invoke kedua jauh lebih cepat?</div>
+<button class="opt">Container yang sama dipakai ulang (warm start)</button>
+<button class="opt">Hasilnya di-cache</button>
+<button class="opt">Kode dikompilasi ulang</button>
+<div class="why">Lambda tidak menyimpan hasil. Kode tetap dijalankan, tetapi tanpa biaya membuat container dan inisialisasi.</div></div>
+<div class="quiz" data-answer="1"><div class="q">3. Dengan event source mapping SQS, siapa yang menghapus pesan dari antrean?</div>
+<button class="opt">Kode fungsi Anda harus memanggil <code>delete_message</code></button>
+<button class="opt">Lambda, otomatis, jika fungsi selesai tanpa error</button>
+<button class="opt">Pesan tidak pernah dihapus</button>
+<div class="why">Itu salah satu keuntungan ESM: Anda cukup fokus memproses isi <code>event["Records"]</code>.</div></div>
+
+<h2>Di AWS asli, apa bedanya?</h2>
+<ul>
+  <li>Biaya dihitung dari jumlah request × durasi × memori. Free Tier bulanan cukup besar untuk belajar.</li>
+  <li>Execution role harus benar-benar ada dan punya izin, mis. untuk menulis log dan membaca SQS (Modul 6).</li>
+  <li>Cold start di AWS biasanya ratusan milidetik, dan tidak ada proses pull image seperti di laptop.</li>
+</ul>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/flow.js"></script>
+<script src="assets/learn.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("anim"), {
+  title: "aws lambda invoke --function-name halo",
+  width: 940, height: 320,
+  zones: [ { x: 200, y: 4, w: 330, h: 312, label: "Floci" }, { x: 548, y: 4, w: 388, h: 312, label: "Docker" } ],
+  nodes: [
+    { id: "cli", x: 20, y: 130, w: 150, h: 60, label: "Anda", sub: "invoke", kind: "client", icon: "💻" },
+    { id: "lam", x: 225, y: 60, w: 180, h: 60, label: "Layanan Lambda", sub: "cek fungsi & versi", kind: "svc", icon: "λ" },
+    { id: "pool", x: 225, y: 210, w: 180, h: 60, label: "Warm pool", sub: "container siap?", kind: "store", icon: "♨️" },
+    { id: "img", x: 580, y: 30, w: 330, h: 54, label: "Image python:3.12", sub: "pull sekali saja", kind: "ext", icon: "📦" },
+    { id: "ctr", x: 580, y: 150, w: 200, h: 70, label: "Container fungsi", sub: "app.handler", kind: "ext", icon: "🐳" },
+    { id: "logs", x: 800, y: 230, w: 120, h: 60, label: "Logs", sub: "/aws/lambda/halo", kind: "store", icon: "📜" }
+  ],
+  steps: [
+    { from: "cli", to: "lam", tag: "payload JSON", title: "Invoke", text: "Anda mengirim payload <code>{\"nama\": \"Idris\"}</code>." },
+    { from: "lam", to: "pool", tag: "ada?", title: "Cari container hangat", text: "Invoke pertama: belum ada container untuk fungsi ini → <b>cold start</b>.", kind: "err" },
+    { from: "lam", to: "img", tag: "pull", title: "Siapkan image", text: "Image runtime resmi diunduh (sekali saja), lalu kode ZIP Anda diekstrak ke <code>/var/task</code>." },
+    { from: "img", to: "ctr", tag: "docker run", title: "Container menyala", text: "Runtime Python di container mulai, meng-import <code>app.py</code>." },
+    { from: "lam", to: "ctr", tag: "event", title: "Event diberikan", text: "<code>handler(event, context)</code> dijalankan." },
+    { from: "ctr", to: "logs", tag: "print()", title: "Log ditulis", text: "Semua <code>print()</code> dikirim ke CloudWatch Logs." },
+    { from: "ctr", to: "cli", tag: "{pesan: Halo, Idris!}", title: "Hasil kembali", text: "Nilai <code>return</code> dikirim sebagai JSON ke pemanggil.", kind: "ok" },
+    { from: "ctr", to: "pool", tag: "standby", title: "Container disimpan", text: "Container tidak langsung dimatikan, melainkan menunggu di warm pool." },
+    { from: "pool", to: "ctr", tag: "pakai ulang", title: "Invoke berikutnya = warm start", text: "Pemanggilan berikutnya langsung memakai container yang sama: tanpa pull, tanpa import ulang. Jauh lebih cepat.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>

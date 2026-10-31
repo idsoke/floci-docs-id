@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panduan Kontributor — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Referensi › Panduan Kontributor</div>
+<h1>Panduan Kontributor</h1>
+<p class="lead">Ringkasan <code>CONTRIBUTING.md</code> dan <code>AGENTS.md</code>: menyiapkan lingkungan, build, tes, gaya kode,
+format commit, dan langkah-langkah menambah layanan atau resource CloudFormation.</p>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Berkontribusi ke Floci itu seperti <b>menambah loket baru di kantor pelayanan</b>. Ada SOP yang jelas: daftarkan loketnya di buku induk
+(<code>ResolvedServiceCatalog</code>), sediakan petugas (controller) dan staf ahli (service), siapkan lemari arsip (storage),
+buat uji coba (tes), lalu tulis papan petunjuknya (dokumentasi). Kalau satu langkah terlewat, CI biasanya akan menegur.</p></div>
+
+<h2>Prasyarat</h2>
+<ul>
+  <li><b>Java 25+</b> (mis. lewat SDKMAN: <code>sdk install java 25-open</code>)</li>
+  <li><b>Maven 3.9+</b> atau pakai wrapper <code>./mvnw</code></li>
+  <li><b>Docker</b> untuk tes integrasi Lambda/RDS/ElastiCache</li>
+</ul>
+
+<h2>Perintah sehari-hari</h2>
+<div class="table-wrap"><table>
+<tr><th>Perintah</th><th>Fungsi</th></tr>
+<tr><td><code>./mvnw quarkus:dev</code> / <code>make dev</code></td><td>Jalankan dengan hot reload di port 4566</td></tr>
+<tr><td><code>./mvnw test</code></td><td>Semua tes</td></tr>
+<tr><td><code>./mvnw test -Dtest=SsmIntegrationTest</code> / <code>make test T=SsmIntegrationTest</code></td><td>Satu kelas tes</td></tr>
+<tr><td><code>./mvnw test -Dtest=SsmIntegrationTest#putParameter</code></td><td>Satu method tes</td></tr>
+<tr><td><code>./mvnw clean package -DskipTests</code></td><td>Build tanpa tes</td></tr>
+<tr><td><code>./mvnw checkstyle:check</code></td><td>Cek gaya kode (<code>tools/checkstyle/checkstyle.xml</code>)</td></tr>
+<tr><td><code>make native</code>, <code>make native-image</code></td><td>Binary native dan image Docker-nya (flag CI)</td></tr>
+<tr><td><code>make native-host</code>, <code>make run-native</code></td><td>Binary native dengan GraalVM lokal</td></tr>
+<tr><td><code>make compat SUITES="sdk-test-java compat-cdk"</code></td><td>Suite kompatibilitas di Docker</td></tr>
+<tr><td><code>make partition-check</code></td><td>Cek literal partisi (<code>arn:aws:</code>, <code>amazonaws.com</code>)</td></tr>
+<tr><td><code>make docs-sync</code>, <code>make docs-check</code></td><td>Regenerasi dan cek tabel dokumentasi</td></tr>
+<tr><td><code>make help</code></td><td>Daftar semua shortcut</td></tr>
+</table></div>
+
+<h2>Alur kontribusi (animasi)</h2>
+<div id="pr-flow"></div>
+
+<h2>Format commit &amp; judul PR</h2>
+<p>Floci memakai <b>Conventional Commits</b>. Judul PR divalidasi CI karena menjadi pesan squash-merge yang dibaca semantic-release.</p>
+<pre><code>&lt;type&gt;[(scope)]: &lt;deskripsi singkat, mode perintah, tanpa titik&gt;</code></pre>
+<div class="table-wrap"><table>
+<tr><th>Type</th><th>Kapan</th><th>Versi</th></tr>
+<tr><td><code>feat</code></td><td>Action atau layanan AWS baru</td><td>minor</td></tr>
+<tr><td><code>fix</code></td><td>Perbaikan bug / kompatibilitas AWS</td><td>patch</td></tr>
+<tr><td><code>perf</code></td><td>Peningkatan performa</td><td>patch</td></tr>
+<tr><td><code>docs</code>, <code>test</code>, <code>refactor</code>, <code>chore</code>, <code>build</code>, <code>ci</code>, <code>style</code></td><td>Tanpa perubahan perilaku</td><td>—</td></tr>
+<tr><td><code>feat!</code> / footer <code>BREAKING CHANGE</code></td><td>Perubahan tidak kompatibel</td><td>major</td></tr>
+</table></div>
+<pre><code>✅ fix(s3): make us-east-1 bucket creation idempotent
+✅ feat(dynamodb): add PartiQL ExecuteStatement support
+❌ Add PartiQL support          (tidak ada type)
+❌ FIX(s3): ...                 (type harus huruf kecil)</code></pre>
+<p class="note"><strong>Penting:</strong> jangan menambahkan trailer <code>Co-Authored-By</code> untuk alat AI di commit. CI (cek <i>PR hygiene → Commits omit AI attribution trailers</i>) akan menggagalkan PR tersebut. Atribusi hanya untuk kontributor manusia.</p>
+
+<h2>Gaya kode</h2>
+<ul>
+  <li>Lolos Checkstyle.</li>
+  <li><b>Tipe eksplisit, jangan pakai <code>var</code></b> (kecuali record deconstruction pattern).</li>
+  <li>Import kelas; jangan nama lengkap inline. Tanpa wildcard import di <code>src/main</code>.</li>
+  <li>Urutan import: non-JDK (alfabetis), <code>javax</code>, <code>java</code>, static.</li>
+  <li>Jangan ada <code>catch</code> kosong; jika memang diabaikan, beri nama <code>ignored</code>/<code>expected</code> dan komentar alasannya.</li>
+  <li>Selalu pakai kurung kurawal di kondisional; gunakan constructor injection.</li>
+  <li>Nama tes: kalimat camelCase atau <code>method_scenario_expectation</code>, bukan <code>testX</code>.</li>
+  <li>Konvensi tes: unit = <code>*ServiceTest.java</code>, integrasi = <code>*IntegrationTest.java</code>.</li>
+</ul>
+
+<h2>Menambah layanan AWS baru (13 langkah)</h2>
+<div id="svc-flow"></div>
+<ol class="steps">
+  <li>Buat paket <code>services/&lt;svc&gt;/</code> berisi Controller/handler sesuai protokol, Service, dan <code>model/</code>.</li>
+  <li>Tambah antarmuka <code>&lt;Svc&gt;ServiceConfig</code> dan aksesornya di <code>ServicesConfig</code> dalam <code>EmulatorConfig</code>.</li>
+  <li>Tambah satu <code>descriptor(...)</code> di <code>ResolvedServiceCatalog</code>. Ini satu-satunya titik registrasi.</li>
+  <li>Tambah <code>floci.services.&lt;key&gt;.enabled</code> di <code>application.yml</code> utama <b>dan</b> tes.</li>
+  <li>Khusus JSON 1.1: suntikkan <code>&lt;Svc&gt;JsonHandler</code> ke <code>AwsJson11Controller</code> dan tambah <code>case</code>.</li>
+  <li>Ambil storage lewat <code>StorageFactory</code> dan implementasikan <code>Resettable</code>.</li>
+  <li>Daftarkan field static <code>Random</code>/<code>SecureRandom</code> di <code>--initialize-at-run-time</code> (untuk native image).</li>
+  <li>Periksa <code>TimestampFormatTrait</code> setiap member timestamp (lihat dengan <code>javap -c</code> pada kelas model SDK).</li>
+  <li>Tambah <code>&lt;Svc&gt;ServiceTest</code> dan <code>&lt;Svc&gt;IntegrationTest</code>.</li>
+  <li>Jika membuat ARN/host: tambah kasus di <code>PartitionCrossServiceSmokeIntegrationTest</code> atau baris pengecualian di <code>smoke-exemptions.tsv</code>.</li>
+  <li>Dokumentasi: <code>docs/services/&lt;svc&gt;.md</code>, nav <code>mkdocs.yml</code>, baris Service Matrix, baris tabel README.</li>
+  <li>Daftarkan handler di <code>tools/docs/services.yaml</code>, lalu <code>make docs-sync</code> dan <code>make docs-check</code>.</li>
+  <li>Tambah factory di <code>TestFixtures</code> dan <code>&lt;Svc&gt;Test</code> di <code>compatibility-tests/sdk-test-java</code>.</li>
+</ol>
+
+<h2>Menambah resource type CloudFormation</h2>
+<ol>
+  <li>Buat/ubah <code>services/cloudformation/provisioners/&lt;Service&gt;CfnProvisioner.java</code> dengan <code>@ApplicationScoped</code> (registrasi otomatis lewat CDI).</li>
+  <li>Implementasikan <code>resourceTypes()</code> dan <code>provision(...)</code>; set <b>physical ID</b> (untuk <code>Ref</code>) <b>dan</b> map atribut (untuk <code>Fn::GetAtt</code>).</li>
+  <li><code>provision</code> juga jalur update: gunakan <code>ctx.isUpdate()</code> dan <code>ctx.priorPhysicalId()</code>.</li>
+  <li>Override <code>delete(...)</code>; toleransi "sudah terhapus" dengan <code>CfnDeletes.safeDelete</code> dan kode error spesifik.</li>
+  <li>Daftarkan di <code>src/test/resources/cloudformation/supported-resource-types.tsv</code>.</li>
+  <li>Buat dapat dijangkau dari <code>CfnProvisionerFixture</code> (field, setter, arm konstruksi).</li>
+  <li>Tes: assert kunci atribut <code>Fn::GetAtt</code> spesifik, bukan hanya <code>CREATE_COMPLETE</code>.</li>
+  <li><code>make docs-sync</code>; jangan edit tabel resource type secara manual.</li>
+</ol>
+
+<h2>Suite kompatibilitas</h2>
+<p>Folder <code>compatibility-tests/</code> berisi tes yang memakai klien sungguhan terhadap Floci:</p>
+<div class="grid">
+  <div class="card"><h3>sdk-test-java</h3><p>AWS SDK for Java v2</p></div>
+  <div class="card"><h3>sdk-test-python</h3><p>boto3</p></div>
+  <div class="card"><h3>sdk-test-node</h3><p>AWS SDK for JavaScript v3</p></div>
+  <div class="card"><h3>sdk-test-go</h3><p>AWS SDK for Go v2</p></div>
+  <div class="card"><h3>sdk-test-awscli</h3><p>AWS CLI</p></div>
+  <div class="card"><h3>compat-terraform / opentofu / cdk</h3><p>Alat infrastructure-as-code</p></div>
+</div>
+<p>Prinsip: validasi management-plane sebaiknya memakai klien SDK, bukan HTTP buatan tangan.</p>
+
+<h2>Model rilis</h2>
+<div class="table-wrap"><table>
+<tr><th>Branch / tag</th><th>Tujuan</th><th>Image Docker</th></tr>
+<tr><td><code>main</code></td><td>Semua PR di-merge ke sini (tidak stabil)</td><td>Hanya nightly</td></tr>
+<tr><td>tag <code>X.Y.Z</code></td><td>Rilis produksi, dibuat oleh workflow Release Cut</td><td><code>x.y.z</code>, <code>latest</code>, <code>-compat</code></td></tr>
+</table></div>
+
+<h2>Checklist sebelum membuka PR</h2>
+<ul>
+  <li>☐ Perilaku sama dengan AWS (cek dokumentasi API dan model SDK)</li>
+  <li>☐ Tes unit + integrasi; tes SDK jika menyentuh protokol</li>
+  <li>☐ Jalur protokol alternatif (Query/JSON/CBOR) tetap konsisten</li>
+  <li>☐ <code>./mvnw checkstyle:check</code> dan <code>make partition-check</code> lolos</li>
+  <li>☐ Dokumentasi diperbarui, <code>make docs-check</code> lolos</li>
+  <li>☐ Judul PR mengikuti Conventional Commits, tanpa trailer atribusi AI</li>
+  <li>☐ Perubahan sempit; tidak ada refactor yang tidak diminta</li>
+</ul>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/flow.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("pr-flow"), {
+  title: "Dari issue sampai rilis",
+  width: 880, height: 250,
+  nodes: [
+    { id: "iss", x: 10, y: 95, w: 120, h: 56, label: "Issue", sub: "bug / fitur", kind: "client", icon: "🐞" },
+    { id: "fork", x: 170, y: 20, w: 130, h: 56, label: "Fork + branch", kind: "filter" },
+    { id: "code", x: 170, y: 170, w: 130, h: 56, label: "Kode + tes", kind: "svc" },
+    { id: "pr", x: 350, y: 95, w: 130, h: 56, label: "Pull Request", sub: "judul konvensional", kind: "ctrl" },
+    { id: "ci", x: 530, y: 20, w: 140, h: 56, label: "CI", sub: "tes, style, partisi", kind: "filter" },
+    { id: "rev", x: 530, y: 170, w: 140, h: 56, label: "Review maintainer", kind: "ctrl" },
+    { id: "main", x: 720, y: 20, w: 150, h: 56, label: "main → nightly", kind: "store" },
+    { id: "rel", x: 720, y: 170, w: 150, h: 56, label: "Rilis X.Y.Z", sub: "tgl 15 & akhir bulan", kind: "svc" }
+  ],
+  steps: [
+    { from: "iss", to: "fork", tag: "ambil", title: "Pilih issue", text: "Diskusikan dulu di issue atau Slack jika perubahannya besar." },
+    { from: "fork", to: "code", tag: "implement", title: "Implementasi", text: "Ikuti pola layanan yang sudah ada. Tambah tes unit dan integrasi." },
+    { from: "code", to: "pr", tag: "push", title: "Buka PR", text: "Judul: <code>fix(sqs): ...</code>. Jelaskan perilaku AWS yang ditiru." },
+    { from: "pr", to: "ci", tag: "checks", title: "CI berjalan", text: "Tes, checkstyle, partition literals, docs-check, validasi judul, dan PR hygiene." },
+    { from: "pr", to: "rev", tag: "review", title: "Review", text: "Maintainer mengecek kompatibilitas AWS dan konsistensi pola." },
+    { from: "rev", to: "main", tag: "squash", title: "Merge ke main", text: "Squash-merge; terbit di image <code>nightly</code> malam itu.", kind: "ok" },
+    { from: "main", to: "rel", tag: "release cut", title: "Rilis", text: "semantic-release menghitung versi dari tipe commit dan menerbitkan image <code>latest</code>.", kind: "ok" }
+  ]
+});
+FlowDiagram.mount(document.getElementById("svc-flow"), {
+  title: "Bagian-bagian yang disentuh saat menambah layanan",
+  width: 880, height: 330,
+  nodes: [
+    { id: "pkg", x: 10, y: 130, w: 150, h: 60, label: "services/<svc>/", sub: "Controller+Service+model", kind: "svc" },
+    { id: "cfg", x: 220, y: 20, w: 170, h: 54, label: "EmulatorConfig", sub: "<Svc>ServiceConfig", kind: "store" },
+    { id: "cat", x: 220, y: 130, w: 170, h: 60, label: "ResolvedService\nCatalog", sub: "descriptor(...)", kind: "ctrl" },
+    { id: "yml", x: 220, y: 250, w: 170, h: 54, label: "application.yml", sub: "main + test", kind: "store" },
+    { id: "disp", x: 450, y: 20, w: 190, h: 54, label: "AwsJson11Controller", sub: "jika JSON 1.1", kind: "ctrl" },
+    { id: "st", x: 450, y: 130, w: 190, h: 60, label: "StorageFactory", sub: "+ Resettable", kind: "store" },
+    { id: "test", x: 450, y: 250, w: 190, h: 54, label: "Tes", sub: "Service/Integration/compat", kind: "filter" },
+    { id: "doc", x: 700, y: 130, w: 170, h: 60, label: "Dokumentasi", sub: "docs-sync", kind: "client" }
+  ],
+  steps: [
+    { from: "pkg", to: "cfg", tag: "config", title: "Konfigurasi bertipe", text: "Tambah <code>&lt;Svc&gt;ServiceConfig</code> (mis. <code>enabled()</code>)." },
+    { from: "pkg", to: "cat", tag: "register", title: "Registrasi di katalog", text: "Descriptor berisi kunci, protokol, prefix target, nama signing, mode storage. <code>ServiceRegistry</code>, <code>ServiceEnabledFilter</code>, dan <code>StorageFactory</code> membacanya otomatis." },
+    { from: "cat", to: "yml", tag: "enabled", title: "Flag di YAML", text: "<code>floci.services.&lt;key&gt;.enabled: true</code> di kedua file YAML." },
+    { from: "cat", to: "disp", tag: "case", title: "Dispatch protokol", text: "Untuk JSON 1.1: suntikkan handler dan tambah <code>case \"&lt;key&gt;\"</code>." },
+    { from: "pkg", to: "st", tag: "storage", title: "Storage", text: "<code>storageFactory.create(\"svc\", \"svc-items.json\", ...)</code>." },
+    { from: "st", to: "test", tag: "verify", title: "Tes", text: "Unit test service, integration test RestAssured/SDK, dan tes di suite kompatibilitas." },
+    { from: "test", to: "doc", tag: "docs", title: "Dokumentasi", text: "Halaman layanan, nav mkdocs, Service Matrix, README, <code>tools/docs/services.yaml</code>.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>

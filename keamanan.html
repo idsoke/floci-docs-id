@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Akun, IAM &amp; Partisi — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Cara Kerja › Akun, IAM &amp; Partisi</div>
+<h1>Akun, IAM, Tanda Tangan &amp; Partisi</h1>
+<p class="lead">Secara default Floci sangat longgar: kredensial apa pun diterima. Tapi di baliknya ada isolasi multi-akun,
+verifikasi tanda tangan opsional, penegakan kebijakan IAM opsional, dan dukungan semua partisi AWS.</p>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Default Floci itu seperti <b>kos-kosan tanpa satpam</b>: siapa pun boleh masuk, tapi setiap penghuni (akun) tetap punya
+<b>kamar sendiri</b> yang isinya tidak tercampur. Kalau Anda ingin latihan aturan keamanan yang ketat seperti di AWS sungguhan,
+Anda bisa <b>memasang satpam</b> (IAM enforcement) yang memeriksa kartu izin setiap tamu.</p></div>
+
+<h2>1. Menentukan akun dari access key</h2>
+<p><code>AccountContextFilter</code> membaca Access Key ID (AKID) dari header <code>Authorization</code>, atau dari
+<code>X-Amz-Credential</code> untuk presigned URL, lalu menentukan akun dengan urutan:</p>
+<div id="acct-flow"></div>
+<pre><code>Authorization: AWS4-HMAC-SHA256 Credential=<b>111111111111</b>/20261101/us-east-1/sqs/aws4_request, ...
+                                            ^^^^^^^^^^^^ AKID 12 digit → account ID 111111111111</code></pre>
+<p>Aturan "AKID 12 digit = account ID" sama dengan LocalStack, jadi setup tes multi-akun yang sudah ada tetap jalan.
+Setelah akun diketahui, semua baca/tulis storage otomatis diberi namespace akun (lihat <a href="storage.html">Penyimpanan Data</a>).</p>
+<pre><code># Dua akun, dua antrean bernama sama, tidak saling melihat
+AWS_ACCESS_KEY_ID=111111111111 aws sqs create-queue --queue-name orders
+AWS_ACCESS_KEY_ID=222222222222 aws sqs create-queue --queue-name orders
+AWS_ACCESS_KEY_ID=111111111111 aws sqs list-queues   # hanya milik 1111...</code></pre>
+
+<h2>2. Tiga tingkat keamanan</h2>
+<div class="table-wrap"><table>
+<tr><th>Tingkat</th><th>Pengaturan</th><th>Perilaku</th></tr>
+<tr><td>🟢 Default</td><td>(tidak ada)</td><td>Kredensial apa pun yang tidak kosong diterima. Tanda tangan tidak diperiksa. Semua aksi diizinkan.</td></tr>
+<tr><td>🟡 Verifikasi tanda tangan</td><td><code>FLOCI_AUTH_VALIDATE_SIGNATURES=true</code></td><td>Tanda tangan SigV4 setiap request bertanda tangan dihitung ulang (header, presigned URL, presigned POST). Kebijakan tidak dievaluasi.</td></tr>
+<tr><td>🔴 IAM enforcement</td><td><code>FLOCI_SERVICES_IAM_ENFORCEMENT_ENABLED=true</code></td><td>Kredensial harus milik user IAM / sesi STS yang valid. Setiap request dievaluasi terhadap kebijakan sebelum mencapai service.</td></tr>
+</table></div>
+<p>Banner startup menampilkan status efektif: <code>IAM: policy enforcement enabled</code> / <code>disabled</code>. Jika request yang seharusnya ditolak tetap lolos, periksa baris itu dulu.</p>
+
+<h2>3. Evaluasi kebijakan IAM (animasi)</h2>
+<p>Urutan evaluasi mengikuti aturan AWS standar:</p>
+<ol class="steps">
+  <li>Jika SCP aktif, aksi harus diizinkan di <b>setiap</b> level organisasi (root, OU, akun) dan tidak ditolak di mana pun.</li>
+  <li><b>Deny eksplisit</b> di kebijakan identitas, sesi, atau boundary → ditolak.</li>
+  <li><b>Allow eksplisit</b> di kebijakan identitas → dasar izin.</li>
+  <li>Jika ada session policy, ia juga harus mengizinkan.</li>
+  <li>Jika ada permission boundary, ia juga harus mengizinkan.</li>
+  <li>Tidak ada Allow efektif → <b>implicit deny</b>.</li>
+</ol>
+<div id="iam-flow"></div>
+<div class="table-wrap"><table>
+<tr><th>Protokol</th><th>Respons saat ditolak</th></tr>
+<tr><td>JSON 1.0 / 1.1</td><td>HTTP 400 <code>AccessDeniedException</code></td></tr>
+<tr><td>REST JSON</td><td>HTTP 403 <code>AccessDeniedException</code></td></tr>
+<tr><td>Query, S3</td><td>HTTP 403 XML <code>AccessDenied</code></td></tr>
+<tr><td>SNS</td><td>HTTP 403 <code>AuthorizationError</code></td></tr>
+</table></div>
+<p>Floci membangun ARN resource sendiri untuk S3, Lambda, SQS, SNS, DynamoDB, Kinesis, SSM, KMS, IAM, Secrets Manager, STS, EventBridge Scheduler, Pipes, EKS, API Gateway, CloudWatch Logs, dan lainnya, sehingga statement dengan <code>Resource</code> spesifik bisa dievaluasi dengan benar. Resource policy (bucket policy, function policy Lambda, queue policy) juga ikut dievaluasi, termasuk akses lintas akun.</p>
+
+<h2>4. Partisi AWS</h2>
+<p>Partisi adalah segmen kedua setiap ARN (<code>arn:<b>aws-cn</b>:...</code>), sufiks DNS endpoint, dan daftar region/layanan yang tersedia di sana.
+Floci membaca semuanya dari metadata resmi botocore (<code>partitions.json</code>, <code>endpoints.json</code>).</p>
+<div class="table-wrap"><table>
+<tr><th>Partisi</th><th>Sufiks DNS</th><th>Contoh region</th></tr>
+<tr><td><code>aws</code></td><td><code>amazonaws.com</code></td><td><code>us-east-1</code>, <code>ap-southeast-3</code></td></tr>
+<tr><td><code>aws-cn</code></td><td><code>amazonaws.com.cn</code></td><td><code>cn-north-1</code></td></tr>
+<tr><td><code>aws-us-gov</code></td><td><code>amazonaws.com</code></td><td><code>us-gov-west-1</code></td></tr>
+<tr><td><code>aws-iso</code>, <code>aws-iso-b</code>, <code>aws-iso-e</code>, <code>aws-iso-f</code></td><td>beragam</td><td><code>us-iso-east-1</code></td></tr>
+<tr><td><code>aws-eusc</code></td><td><code>amazonaws.eu</code></td><td><code>eusc-de-east-1</code></td></tr>
+</table></div>
+<p>Partisi deployment diturunkan dari <code>FLOCI_DEFAULT_REGION</code> (mis. <code>cn-north-1</code> → <code>aws-cn</code>), atau dipaku dengan <code>FLOCI_PARTITIONS_ID</code>.</p>
+<p class="note"><strong>Untuk kontributor:</strong> literal <code>"arn:aws:"</code>, <code>amazonaws.com</code>, atau perbandingan dengan <code>"aws"</code>
+di kode adalah <b>bug</b> di partisi lain. <code>make partition-check</code> (CI: Partition Literals) menggagalkan build jika ada literal baru.
+Gunakan <code>AwsArnUtils.Arn.of(...)</code>, <code>RegionResolver.buildArn(...)</code>, <code>RegionResolver.buildGlobalArn</code>,
+<code>AwsRegions.dnsSuffixFor</code>, dan <code>ServicePrincipals.of("&lt;service&gt;")</code>.</p>
+
+<h2>5. Paparan jaringan &amp; TLS</h2>
+<ul>
+  <li>Floci menolak listen di luar loopback (<code>127.0.0.1</code>) kecuali <code>FLOCI_SECURITY_ALLOW_UNSAFE_NETWORK_EXPOSURE=true</code> (<code>NetworkExposureGuard</code>). Image Docker sudah men-set ini karena di dalam container ia listen di <code>0.0.0.0</code>, jadi siapa yang bisa mengakses tergantung cara Anda mem-publish port.</li>
+  <li>Rekomendasi: <code>docker run -p 127.0.0.1:4566:4566 floci/floci</code> agar hanya bisa diakses dari mesin sendiri.</li>
+  <li>TLS opsional: <code>FLOCI_TLS_ENABLED=true</code>. HTTP dan HTTPS dilayani bersamaan di port yang sama. Floci punya CA lokal sendiri; unduh dari <code>/_floci/ca.pem</code> dan pakai <code>AWS_CA_BUNDLE</code>.</li>
+  <li>CORS browser bisa diatur dengan <code>FLOCI_SECURITY_EXTRA_CORS_ALLOWED_ORIGINS</code> dan variabel terkait.</li>
+</ul>
+<p class="note"><strong>Penting:</strong> Floci adalah alat pengembangan. Siapa pun yang bisa menjangkau port-nya bisa memanggil API-nya. Jangan mengekspos Floci ke internet.</p>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/flow.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("acct-flow"), {
+  title: "Resolusi account ID dari access key",
+  width: 880, height: 330,
+  nodes: [
+    { id: "req", x: 10, y: 135, w: 140, h: 60, label: "Request", sub: "Credential=AKID/…", kind: "client", icon: "🔑" },
+    { id: "f", x: 190, y: 135, w: 150, h: 60, label: "AccountContext\nFilter", kind: "filter" },
+    { id: "d12", x: 390, y: 15, w: 200, h: 54, label: "AKID 12 digit?", sub: "pakai langsung", kind: "ctrl" },
+    { id: "iamk", x: 390, y: 95, w: 200, h: 54, label: "Access key IAM?", sub: "AKIA… → pemilik", kind: "ctrl" },
+    { id: "sts", x: 390, y: 175, w: 200, h: 54, label: "Sesi STS aktif?", sub: "ASIA… → akun sesi", kind: "ctrl" },
+    { id: "def", x: 390, y: 255, w: 200, h: 54, label: "Lainnya", sub: "FLOCI_DEFAULT_ACCOUNT_ID", kind: "ctrl" },
+    { id: "ctx", x: 660, y: 135, w: 200, h: 60, label: "RequestContext", sub: "accountId + region", kind: "store", icon: "🏷️" }
+  ],
+  steps: [
+    { from: "req", to: "f", tag: "AKID", title: "Ambil access key", text: "Filter membaca bagian <code>Credential=</code> dari header <code>Authorization</code>." },
+    { from: "f", to: "d12", tag: "111111111111", title: "Aturan 1: 12 digit", text: "Jika AKID tepat 12 digit angka, itulah account ID-nya." },
+    { from: "f", to: "iamk", tag: "AKIA…", title: "Aturan 2: access key IAM", text: "Access key jangka panjang yang dibuat lewat <code>iam create-access-key</code> dipetakan ke akun pemiliknya." },
+    { from: "f", to: "sts", tag: "ASIA…", title: "Aturan 3: kredensial sementara", text: "Kredensial dari <code>sts assume-role</code> dipetakan ke akun yang tercatat untuk sesi tersebut." },
+    { from: "f", to: "def", tag: "test", title: "Aturan 4: fallback", text: "Access key lain (mis. <code>test</code>) memakai default <code>000000000000</code>." },
+    { from: "d12", to: "ctx", tag: "set", title: "Konteks request diisi", text: "Account ID dan region disimpan di <code>RequestContext</code>. Semua filter, service, dan storage berikutnya memakainya.", kind: "ok" }
+  ]
+});
+FlowDiagram.mount(document.getElementById("iam-flow"), {
+  title: "Evaluasi kebijakan untuk s3:GetObject",
+  width: 880, height: 330,
+  nodes: [
+    { id: "r", x: 10, y: 135, w: 140, h: 60, label: "Request", sub: "role/dev", kind: "client" },
+    { id: "auth", x: 180, y: 135, w: 150, h: 60, label: "Autentikasi", sub: "kredensial valid?", kind: "filter" },
+    { id: "scp", x: 370, y: 20, w: 160, h: 54, label: "SCP organisasi", kind: "store" },
+    { id: "deny", x: 370, y: 100, w: 160, h: 54, label: "Ada Deny?", kind: "store" },
+    { id: "allow", x: 370, y: 180, w: 160, h: 54, label: "Ada Allow?", sub: "identity / resource", kind: "store" },
+    { id: "bnd", x: 370, y: 260, w: 160, h: 54, label: "Boundary / Session", kind: "store" },
+    { id: "ok", x: 620, y: 80, w: 170, h: 56, label: "Diizinkan", sub: "→ service", kind: "svc" },
+    { id: "no", x: 620, y: 210, w: 170, h: 56, label: "Ditolak", sub: "AccessDenied", kind: "ext" }
+  ],
+  steps: [
+    { from: "r", to: "auth", tag: "AKIA…", title: "Cek kredensial", text: "Access key harus milik user IAM aktif atau sesi STS yang belum kedaluwarsa. Jika tidak: <i>The security token included in the request is invalid</i>." },
+    { from: "auth", to: "scp", tag: "SCP", title: "Service Control Policy", text: "Jika SCP aktif, aksi harus diizinkan di setiap level organisasi." },
+    { from: "scp", to: "deny", tag: "Deny?", title: "Cari Deny eksplisit", text: "Satu Deny di mana pun langsung menolak, tak peduli berapa banyak Allow." },
+    { from: "deny", to: "allow", tag: "Allow?", title: "Cari Allow", text: "Kebijakan identitas user/role, atau resource policy (mis. bucket policy) yang menyebut principal ini." },
+    { from: "allow", to: "bnd", tag: "batas", title: "Permission boundary &amp; session policy", text: "Jika ada, keduanya juga harus mengizinkan. Izin efektif = irisan." },
+    { from: "bnd", to: "ok", tag: "Allow", title: "Semua lolos → izinkan", text: "Request diteruskan ke controller S3.", kind: "ok" },
+    { from: "deny", to: "no", tag: "Deny", title: "Atau: ditolak", text: "Deny eksplisit, atau tidak ada Allow (implicit deny), menghasilkan <code>AccessDenied</code>.", kind: "err" }
+  ]
+});
+</script>
+</body>
+</html>

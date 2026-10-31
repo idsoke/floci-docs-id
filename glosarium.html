@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glosarium — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  dl.gloss { display: grid; grid-template-columns: 230px 1fr; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+  dl.gloss dt, dl.gloss dd { margin: 0; padding: 11px 14px; border-bottom: 1px solid var(--border); }
+  dl.gloss dt { font-weight: 700; background: var(--panel-2); }
+  dl.gloss .hide { display: none; }
+  @media (max-width: 640px) { dl.gloss { grid-template-columns: 1fr; } dl.gloss dt { border-bottom: none; } }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Referensi › Glosarium</div>
+<h1>Glosarium</h1>
+<p class="lead">Kamus istilah yang dipakai di dokumentasi ini, dengan penjelasan sederhana.</p>
+
+<div class="toolbar"><input id="gq" type="search" placeholder="Cari istilah…"><span class="count" id="gc"></span></div>
+
+<dl class="gloss" id="gl">
+<dt>Account ID</dt><dd>Nomor akun AWS 12 digit. Di Floci default-nya <code>000000000000</code>; access key 12 digit langsung dipakai sebagai account ID.</dd>
+<dt>Action / Operasi</dt><dd>Satu perintah API, mis. <code>CreateBucket</code>, <code>SendMessage</code>, <code>PutItem</code>.</dd>
+<dt>AKID</dt><dd>Access Key ID, bagian publik dari kredensial AWS (mis. <code>AKIA...</code>, <code>ASIA...</code>, atau <code>test</code> di Floci).</dd>
+<dt>ARN</dt><dd>Amazon Resource Name, alamat unik sebuah resource: <code>arn:partisi:layanan:region:akun:resource</code>.</dd>
+<dt>AwsException</dt><dd>Exception di kode Floci yang membawa kode error AWS dan status HTTP; diubah menjadi respons error berformat AWS.</dd>
+<dt>CBOR</dt><dd>Format data biner ringkas (seperti JSON tapi biner). Dipakai protokol Smithy RPC v2 dan file WAL Floci.</dd>
+<dt>CDI</dt><dd>Contexts and Dependency Injection, mekanisme Quarkus untuk membuat dan menyuntikkan objek (<code>@ApplicationScoped</code>, <code>@Inject</code>).</dd>
+<dt>Cold start / Warm start</dt><dd>Cold start: container Lambda harus dibuat dulu (lambat). Warm start: container yang sudah ada dipakai ulang (cepat).</dd>
+<dt>Compat image</dt><dd>Varian image <code>floci/floci:latest-compat</code> yang berisi AWS CLI dan boto3 untuk init hooks.</dd>
+<dt>Control plane / Data plane</dt><dd>Control plane: mengelola resource (buat/hapus tabel). Data plane: memakai resource (baca/tulis item, koneksi database).</dd>
+<dt>Controller / Handler</dt><dd>Lapisan yang mem-parsing request protokol AWS dan membentuk respons. Tidak berisi logika bisnis.</dd>
+<dt>Descriptor</dt><dd>Entri di <code>ResolvedServiceCatalog</code> yang mendeskripsikan satu layanan: kunci, protokol, prefix target, mode storage.</dd>
+<dt>DLQ</dt><dd>Dead-Letter Queue, antrean tempat pesan yang berulang kali gagal diproses dipindahkan.</dd>
+<dt>Drop-in replacement</dt><dd>Pengganti yang bisa langsung dipasang tanpa mengubah konfigurasi lain. Floci terhadap LocalStack.</dd>
+<dt>Emulator</dt><dd>Program yang meniru perilaku sistem lain. Floci meniru AWS.</dd>
+<dt>Endpoint</dt><dd>Alamat tujuan request. Untuk Floci: <code>http://localhost:4566</code>.</dd>
+<dt>ESM (Event Source Mapping)</dt><dd>Konfigurasi Lambda yang menarik data dari SQS/Kinesis/DynamoDB Streams secara otomatis dan memanggil fungsi.</dd>
+<dt>Fan-out</dt><dd>Satu pesan dikirim ke banyak penerima sekaligus (mis. SNS ke beberapa antrean SQS).</dd>
+<dt>Filter (JAX-RS)</dt><dd>Kode yang berjalan sebelum/sesudah controller untuk setiap request, mis. menentukan akun atau memeriksa IAM.</dd>
+<dt>Hybrid storage</dt><dd>Mode penyimpanan: baca/tulis di memori, disalin ke disk secara berkala.</dd>
+<dt>IAM enforcement</dt><dd>Mode opsional Floci yang mengevaluasi kebijakan IAM untuk setiap request (<code>FLOCI_SERVICES_IAM_ENFORCEMENT_ENABLED</code>).</dd>
+<dt>IMDS</dt><dd>Instance Metadata Service (<code>169.254.169.254</code>) yang memberi kredensial dan metadata ke instance EC2. Floci menyediakan servernya.</dd>
+<dt>Init hooks</dt><dd>Skrip yang dijalankan Floci di fase boot/start/ready/stop, mis. untuk membuat resource awal.</dd>
+<dt>JAX-RS</dt><dd>Standar Java untuk membuat API REST (anotasi <code>@Path</code>, <code>@POST</code>, filter, provider). Quarkus memakai RESTEasy Reactive.</dd>
+<dt>JSON 1.0 / 1.1</dt><dd>Protokol AWS: POST <code>/</code> dengan body JSON dan header <code>X-Amz-Target</code> berisi nama operasi.</dd>
+<dt>LocalStack</dt><dd>Emulator AWS lain yang populer. Floci kompatibel dengannya (port, init hooks, endpoint health).</dd>
+<dt>Long polling</dt><dd>Request yang ditahan server sampai ada data atau waktu habis (mis. <code>ReceiveMessage</code> SQS hingga 20 detik).</dd>
+<dt>Multi-account</dt><dd>Isolasi resource per akun: data akun A tidak terlihat oleh akun B.</dd>
+<dt>Native image</dt><dd>Aplikasi Java yang dikompilasi GraalVM menjadi binary mesin: cepat menyala, hemat memori. Image Docker standar Floci memakai ini.</dd>
+<dt>Partisi (partition)</dt><dd>Kelompok region AWS yang terpisah: <code>aws</code> (komersial), <code>aws-cn</code> (Tiongkok), <code>aws-us-gov</code> (GovCloud), ISO, EUSC.</dd>
+<dt>Pre-matching filter</dt><dd>Filter JAX-RS yang berjalan sebelum route dipilih, sehingga boleh mengubah path request.</dd>
+<dt>Presigned URL</dt><dd>URL yang sudah ditandatangani sehingga bisa dipakai tanpa kredensial (mis. untuk unduh/unggah S3).</dd>
+<dt>Protocol claim</dt><dd>Keputusan Floci tentang protokol wire sebuah request, dibuat oleh <code>ProtocolClaimer</code>.</dd>
+<dt>Query protocol</dt><dd>Protokol AWS lama: form-encoded <code>Action=...&amp;Version=...</code>, dibalas XML.</dd>
+<dt>Quarkus</dt><dd>Framework Java untuk aplikasi cloud-native yang menjadi fondasi Floci.</dd>
+<dt>Region</dt><dd>Lokasi geografis AWS, mis. <code>us-east-1</code>, <code>ap-southeast-3</code> (Jakarta).</dd>
+<dt>Resettable</dt><dd>Antarmuka untuk layanan Floci yang state-nya bisa dikosongkan.</dd>
+<dt>REST JSON / REST XML</dt><dd>Protokol AWS yang memakai method dan path HTTP bermakna; body JSON (Lambda) atau XML (S3).</dd>
+<dt>Runtime API</dt><dd>API HTTP tempat runtime Lambda di container meminta event berikutnya dan mengirim hasil. Floci menyediakannya di port 12000–12499.</dd>
+<dt>SCP</dt><dd>Service Control Policy dari AWS Organizations: batas izin untuk seluruh akun/OU.</dd>
+<dt>Service</dt><dd>(1) Produk AWS seperti S3. (2) Lapisan logika bisnis di kode Floci, mis. <code>SqsService</code>.</dd>
+<dt>Sidecar</dt><dd>Container pendamping yang dinyalakan di samping Floci, mis. konsol web.</dd>
+<dt>SigV4</dt><dd>Signature Version 4, algoritma tanda tangan request AWS (header <code>Authorization: AWS4-HMAC-SHA256 ...</code>).</dd>
+<dt>Smithy</dt><dd>Bahasa model API yang dipakai AWS untuk mendefinisikan layanan dan protokol; dasar semua SDK modern.</dd>
+<dt>StorageFactory</dt><dd>Kelas yang membuat backend storage untuk setiap layanan sesuai mode yang dikonfigurasi.</dd>
+<dt>Testcontainers</dt><dd>Pustaka untuk menyalakan container (mis. Floci) secara otomatis saat menjalankan tes.</dd>
+<dt>Virtual thread</dt><dd>Thread ringan Java 21+ yang murah dibuat; dipakai Floci agar long polling tidak memblokir worker.</dd>
+<dt>Visibility timeout</dt><dd>Waktu sebuah pesan SQS disembunyikan setelah diterima, agar tidak diproses dua konsumen.</dd>
+<dt>WAL</dt><dd>Write-Ahead Log: setiap perubahan dicatat di ujung file log, lalu dirangkum (kompaksi) menjadi snapshot.</dd>
+<dt>Wire protocol</dt><dd>Bentuk data persis yang lewat di jaringan: URL, header, body, kode status.</dd>
+<dt>X-Amz-Target</dt><dd>Header yang menyebut layanan dan operasi untuk protokol JSON, mis. <code>DynamoDB_20120810.PutItem</code>.</dd>
+</dl>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script>
+(function () {
+  const dl = document.getElementById("gl"), q = document.getElementById("gq"), c = document.getElementById("gc");
+  const dts = [...dl.querySelectorAll("dt")];
+  function f() {
+    const t = q.value.trim().toLowerCase(); let n = 0;
+    dts.forEach((dt) => {
+      const dd = dt.nextElementSibling;
+      const hit = !t || (dt.textContent + " " + dd.textContent).toLowerCase().includes(t);
+      dt.classList.toggle("hide", !hit); dd.classList.toggle("hide", !hit); if (hit) n++;
+    });
+    c.textContent = `${n} istilah`;
+  }
+  q.addEventListener("input", f); f();
+})();
+</script>
+</body>
+</html>

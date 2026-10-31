@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Siklus Hidup &amp; Hooks — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Cara Kerja › Siklus Hidup &amp; Hooks</div>
+<h1>Siklus Hidup &amp; Init Hooks</h1>
+<p class="lead">Apa yang dikerjakan Floci dari detik pertama dinyalakan sampai benar-benar berhenti, berdasarkan
+<code>lifecycle/EmulatorLifecycle.java</code>, dan bagaimana Anda bisa menyisipkan skrip sendiri di setiap fase.</p>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Seperti <b>membuka toko</b> di pagi hari: buka gembok (boot), keluarkan barang dari gudang (muat storage),
+nyalakan mesin-mesin (container RDS, Redis), buka pintu untuk pembeli (HTTP siap), lalu pasang papan "BUKA" (Ready).
+Malamnya kebalikannya: tutup pintu, catat stok terakhir ke buku (flush), matikan mesin, kunci toko.
+<b>Init hooks</b> adalah catatan tugas yang Anda titipkan untuk dikerjakan di tiap tahap, misalnya "setiap buka toko, siapkan 3 rak (bucket) dan 2 kotak surat (antrean)".</p></div>
+
+<h2>Animasi: proses startup</h2>
+<div id="start-flow"></div>
+
+<h3>Detail langkah <code>onStart</code> (urutan di kode)</h3>
+<ol class="steps">
+  <li><b>Banner</b>: versi, endpoint, region, akun, mode storage, TLS, status IAM.</li>
+  <li><b>Hook <code>boot</code></b> dijalankan. Gagal = Floci berhenti.</li>
+  <li>Validasi path persisten (<code>PersistentPathValidator</code>), log daftar layanan aktif.</li>
+  <li><b><code>storageFactory.loadAll()</code></b>: semua store dimuat dari disk sesuai mode.</li>
+  <li>Bersih-bersih sesi IAM yatim: sesi role eksekusi Lambda, sesi instance EC2, sesi task-role ECS.</li>
+  <li>Pemulihan: schema worker, eksekusi Step Functions yang terputus dibatalkan, eksekusi <i>durable</i> Lambda dipulihkan.</li>
+  <li><b>Poller dinyalakan</b>: SQS, Kinesis, DynamoDB Streams (event source mapping Lambda), EventBridge Pipes, Redshift zero-ETL.</li>
+  <li><b>Runtime dipulihkan</b>: container RDS, Timestream InfluxDB, ElastiCache (Redis &amp; Memcached), ELBv2, ELB Classic, ECS.</li>
+  <li>Server metadata: EC2 IMDS dan server kredensial task-role ECS (jika dibutuhkan).</li>
+  <li>Jika tidak ada hook <code>start</code>/<code>ready</code>: langsung tandai siap dan cetak <code>=== AWS Local Emulator Ready ===</code> + <code>Ready.</code></li>
+</ol>
+<p>Saat server HTTP benar-benar listen (<code>onHttpStart</code>): kluster EKS yang tersimpan dipulihkan, hook <code>start</code> lalu <code>ready</code> dijalankan, kemudian banner Ready dicetak.</p>
+<p class="note tip"><strong>Kenapa ada baris "Ready."?</strong> Testcontainers <code>LocalStackContainer</code> menunggu log yang cocok dengan regex <code>.*Ready\.</code>.
+Floci mencetaknya demi kompatibilitas dengan LocalStack (bisa dimatikan lewat pengaturan paritas LocalStack).</p>
+
+<h2>Animasi: proses shutdown</h2>
+<div id="stop-flow"></div>
+<p>Setiap langkah pembersihan dibungkus <code>runCleanup(nama, aksi)</code>: kegagalan dicatat lalu dilanjutkan ke langkah berikutnya, supaya satu container yang macet tidak menghalangi flush storage.</p>
+
+<h2>Init hooks</h2>
+<div class="table-wrap"><table>
+<tr><th>Fase</th><th>Kapan</th><th>API AWS tersedia?</th><th>Folder Floci</th><th>Folder kompatibel LocalStack</th></tr>
+<tr><td><b>boot</b></td><td>Sebelum storage dimuat dan layanan mulai</td><td>❌</td><td><code>/etc/floci/init/boot.d</code></td><td><code>/etc/localstack/init/boot.d</code></td></tr>
+<tr><td><b>start</b></td><td>Setelah HTTP di 4566 siap</td><td>✅</td><td><code>/etc/floci/init/start.d</code></td><td><code>/etc/localstack/init/start.d</code></td></tr>
+<tr><td><b>ready</b></td><td>Setelah semua hook start selesai</td><td>✅</td><td><code>/etc/floci/init/ready.d</code></td><td><code>/etc/localstack/init/ready.d</code></td></tr>
+<tr><td><b>stop</b></td><td>Pre-shutdown, HTTP masih hidup</td><td>✅</td><td><code>/etc/floci/init/stop.d</code> atau <code>shutdown.d</code></td><td><code>/etc/localstack/init/shutdown.d</code></td></tr>
+</table></div>
+<ul>
+  <li>Ekstensi: <code>.sh</code> (shell, default <code>/bin/sh</code>), <code>.py</code> (python3). Di Windows juga <code>.ps1</code>, <code>.cmd</code>, <code>.bat</code>.</li>
+  <li>Urutan: <b>leksikografis dan berurutan</b>. Beri awalan angka: <code>01-</code>, <code>02-</code>.</li>
+  <li><b>Fail-fast</b>: skrip yang exit non-zero menghentikan sisa skrip di fase itu. Gagal di boot/start/ready → Floci mati. Gagal di stop → hanya dicatat.</li>
+  <li>Jika nama file sama ada di kedua folder, versi Floci yang dijalankan.</li>
+  <li>Status tiap fase bisa dipantau di <code>/_floci/init</code> dan <code>/_localstack/init</code>.</li>
+  <li>Image <code>floci/floci:latest-compat</code> sudah berisi AWS CLI dan boto3 yang mengarah ke <code>localhost:4566</code>.</li>
+</ul>
+
+<h3>Contoh: seed resource otomatis</h3>
+<pre><code># init/ready.d/01-seed.sh
+#!/bin/sh
+set -eu
+aws s3 mb s3://unggahan
+aws sqs create-queue --queue-name pesanan
+aws dynamodb create-table --table-name pengguna \
+  --attribute-definitions AttributeName=pk,AttributeType=S \
+  --key-schema AttributeName=pk,KeyType=HASH --billing-mode PAY_PER_REQUEST
+aws ssm put-parameter --name /app/env --type String --value lokal</code></pre>
+<pre><code># docker-compose.yml
+services:
+  floci:
+    image: floci/floci:latest-compat
+    ports: ["4566:4566"]
+    volumes:
+      - ./init/ready.d:/etc/floci/init/ready.d:ro</code></pre>
+
+<h2>Endpoint status</h2>
+<div class="table-wrap"><table>
+<tr><th>Endpoint</th><th>Isi</th></tr>
+<tr><td><code>GET /_floci/health</code>, <code>/_localstack/health</code></td><td>Daftar layanan dan statusnya (<code>running</code> / <code>available</code>), versi.</td></tr>
+<tr><td><code>GET /_floci/init</code>, <code>/_localstack/init</code></td><td>Status penyelesaian fase boot/start/ready/stop.</td></tr>
+<tr><td><code>GET /_floci/ui</code></td><td>Membuka konsol web (sidecar container, dinyalakan saat pertama diakses).</td></tr>
+<tr><td><code>GET /_floci/ca.pem</code></td><td>Sertifikat CA lokal untuk TLS.</td></tr>
+</table></div>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/flow.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("start-flow"), {
+  title: "Startup Floci dari nol sampai Ready",
+  width: 900, height: 360,
+  nodes: [
+    { id: "q", x: 10, y: 150, w: 130, h: 60, label: "Quarkus", sub: "StartupEvent", kind: "client", icon: "▶️" },
+    { id: "boot", x: 180, y: 30, w: 150, h: 54, label: "Hook boot.d", sub: "tanpa API", kind: "filter" },
+    { id: "load", x: 180, y: 150, w: 150, h: 60, label: "loadAll()", sub: "muat storage", kind: "store", icon: "💾" },
+    { id: "sweep", x: 180, y: 270, w: 150, h: 54, label: "Sapu sesi yatim", sub: "IAM/STS", kind: "svc" },
+    { id: "poll", x: 380, y: 30, w: 160, h: 54, label: "Poller", sub: "SQS/Kinesis/Streams", kind: "svc" },
+    { id: "rt", x: 380, y: 150, w: 160, h: 60, label: "Pulihkan runtime", sub: "RDS, Redis, ECS…", kind: "ext", icon: "🐳" },
+    { id: "imds", x: 380, y: 270, w: 160, h: 54, label: "IMDS / ECS creds", kind: "svc" },
+    { id: "http", x: 590, y: 150, w: 140, h: 60, label: "HTTP :4566", sub: "HttpServerStart", kind: "ctrl" },
+    { id: "hooks", x: 590, y: 30, w: 140, h: 54, label: "start.d → ready.d", kind: "filter" },
+    { id: "ready", x: 770, y: 150, w: 120, h: 60, label: "Ready.", kind: "svc", icon: "✅" }
+  ],
+  steps: [
+    { from: "q", to: "boot", tag: "1", title: "Jalankan hook boot", text: "Skrip di <code>boot.d</code> berjalan sebelum apa pun dimuat. Cocok untuk menyiapkan file atau sertifikat. API AWS belum tersedia." },
+    { from: "q", to: "load", tag: "2", title: "Muat semua storage", text: "<code>storageFactory.loadAll()</code> membaca snapshot/WAL dari disk (jika mode-nya bukan memory)." },
+    { from: "load", to: "sweep", tag: "3", title: "Bersihkan sesi yatim", text: "Sesi kredensial untuk Lambda/EC2/ECS yang ditinggal dari run sebelumnya dihapus." },
+    { from: "load", to: "poll", tag: "4", title: "Nyalakan poller", text: "Event source mapping yang tersimpan dihidupkan lagi: SQS → Lambda, Kinesis → Lambda, DynamoDB Streams → Lambda, Pipes." },
+    { from: "load", to: "rt", tag: "5", title: "Pulihkan container", text: "Database RDS, cache ElastiCache, load balancer, dan task ECS yang tersimpan dinyalakan kembali di Docker." },
+    { from: "rt", to: "imds", tag: "6", title: "Server metadata", text: "IMDS EC2 dan server kredensial task-role ECS dinyalakan jika ada layanan yang membutuhkannya." },
+    { from: "imds", to: "http", tag: "7", title: "HTTP siap", text: "Quarkus mulai listen di 4566. Event <code>HttpServerStart</code> memicu <code>onHttpStart</code>. Kluster EKS dipulihkan." },
+    { from: "http", to: "hooks", tag: "8", title: "Hook start lalu ready", text: "Skrip di <code>start.d</code> lalu <code>ready.d</code> berjalan berurutan. Mereka sudah bisa memanggil <code>aws ...</code>." },
+    { from: "hooks", to: "ready", tag: "9", title: "Siap melayani", text: "Log: <code>=== AWS Local Emulator Ready ===</code> dan <code>Ready.</code>. <code>/_floci/init</code> melaporkan semua fase selesai.", kind: "ok" }
+  ]
+});
+FlowDiagram.mount(document.getElementById("stop-flow"), {
+  title: "Shutdown yang tertib",
+  width: 900, height: 300,
+  nodes: [
+    { id: "sig", x: 10, y: 120, w: 130, h: 60, label: "SIGTERM", sub: "docker stop", kind: "client", icon: "⏹️" },
+    { id: "stopd", x: 180, y: 20, w: 160, h: 54, label: "Hook stop.d", sub: "HTTP masih hidup", kind: "filter" },
+    { id: "poll", x: 180, y: 120, w: 160, h: 60, label: "Matikan poller", sub: "Streams, Kinesis", kind: "svc" },
+    { id: "flush", x: 390, y: 120, w: 150, h: 60, label: "flushAll()", sub: "tulis ke disk", kind: "store", icon: "💾" },
+    { id: "proxy", x: 390, y: 220, w: 150, h: 54, label: "Stop proxy TCP", sub: "RDS/Redis/…", kind: "filter" },
+    { id: "ctr", x: 590, y: 220, w: 160, h: 54, label: "Stop container", sub: "DB, MQ, ECR, UI", kind: "ext", icon: "🐳" },
+    { id: "shut", x: 590, y: 120, w: 160, h: 60, label: "shutdownAll()", sub: "tutup storage", kind: "store" },
+    { id: "end", x: 790, y: 120, w: 100, h: 60, label: "Stopped", kind: "svc" }
+  ],
+  steps: [
+    { from: "sig", to: "stopd", tag: "pre", title: "Pre-shutdown: hook stop", text: "<code>onPreShutdown</code> menjalankan skrip di <code>stop.d</code> selagi API masih bisa dipanggil, mis. untuk ekspor data." },
+    { from: "sig", to: "poll", tag: "1", title: "Hentikan poller", text: "Poller DynamoDB Streams, Kinesis, dan konsumen Redshift zero-ETL dimatikan agar tidak ada tulis baru." },
+    { from: "poll", to: "flush", tag: "2", title: "Flush storage", text: "Semua store yang kotor (hybrid) atau WAL ditulis ke disk." },
+    { from: "flush", to: "proxy", tag: "3", title: "Stop proxy", text: "Proxy ElastiCache, RDS, MemoryDB, Neptune ditutup." },
+    { from: "proxy", to: "ctr", tag: "4", title: "Stop container", text: "Container Redis, Memcached, RDS, MemoryDB, DocDB, Neptune, RabbitMQ, Flink, registry ECR, dan UI dihentikan." },
+    { from: "ctr", to: "shut", tag: "5", title: "Tutup storage", text: "Backend DynamoDB dihentikan dan <code>storageFactory.shutdownAll()</code> menutup semua store (kompaksi WAL terakhir)." },
+    { from: "shut", to: "end", tag: "bye", title: "Selesai", text: "Log: <code>=== AWS Local Emulator Stopped ===</code>.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>

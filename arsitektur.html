@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arsitektur — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Cara Kerja › Arsitektur</div>
+<h1>Arsitektur Floci</h1>
+<p class="lead">Floci adalah satu aplikasi Java (Quarkus) yang berisi lebih dari 130 layanan AWS.
+Setiap layanan mengikuti pola berlapis yang sama, dan semuanya berbagi infrastruktur inti.</p>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Bayangkan sebuah <b>kantor pelayanan publik</b>:</p>
+<p>🚪 <b>Satpam &amp; resepsionis (filter)</b> memeriksa tamu: dari akun mana, bahasanya apa, boleh masuk atau tidak.<br>
+🧾 <b>Petugas loket (controller/handler)</b> membaca formulir dan menyerahkannya ke bagian yang tepat.<br>
+👩‍💼 <b>Staf ahli (service)</b> mengerjakan permintaannya sesuai aturan.<br>
+🗄️ <b>Ruang arsip (storage)</b> menyimpan semua dokumen, dipisah per akun.<br>
+Setiap "bagian" (S3, SQS, Lambda, dll.) punya loket dan staf ahli sendiri, tapi satpam, resepsionis, dan ruang arsipnya dipakai bersama.</p></div>
+
+<h2>Tumpukan teknologi</h2>
+<div class="table-wrap"><table>
+<tr><th>Komponen</th><th>Teknologi</th><th>Kegunaan</th></tr>
+<tr><td>Bahasa</td><td>Java 25</td><td>Termasuk <i>virtual threads</i> untuk long-polling (SQS <code>ReceiveMessage</code>)</td></tr>
+<tr><td>Framework</td><td>Quarkus 3.40.1</td><td>HTTP server (Vert.x), JAX-RS (RESTEasy Reactive), CDI (dependency injection), konfigurasi</td></tr>
+<tr><td>JSON</td><td>Jackson</td><td>Parsing dan serialisasi JSON 1.0/1.1, REST JSON, CBOR</td></tr>
+<tr><td>XML</td><td><code>XmlBuilder</code> / <code>XmlParser</code> internal</td><td>Respons Query &amp; REST XML (S3). Dilarang memakai regex untuk XML</td></tr>
+<tr><td>Container</td><td>Docker API (lewat <code>/var/run/docker.sock</code>)</td><td>Lambda, RDS, ElastiCache, ECS, EKS (k3s), OpenSearch, Amazon MQ, dll.</td></tr>
+<tr><td>Tes</td><td>JUnit 5, RestAssured, AWS SDK</td><td>Unit test, integration test, dan suite kompatibilitas</td></tr>
+<tr><td>Distribusi</td><td>Image JVM, image native (GraalVM), binary <code>floci-aws</code></td><td>Image native lebih kecil dan cepat menyala</td></tr>
+</table></div>
+
+<h2>Lapisan arsitektur (animasi)</h2>
+<div id="layers"></div>
+
+<h3>Peran tiap lapisan</h3>
+<div class="grid two">
+  <div class="card"><h3>1. Filter JAX-RS</h3><p>Berjalan sebelum controller. Menentukan akun &amp; region (<code>AccountContextFilter</code>), mengenali protokol (<code>AwsProtocolClaimFilter</code>), memeriksa layanan aktif (<code>ServiceEnabledFilter</code>), memverifikasi tanda tangan (<code>SigV4HeaderSignatureFilter</code>, opsional), dan menegakkan IAM (<code>IamEnforcementFilter</code>, opsional).</p></div>
+  <div class="card"><h3>2. Controller / Handler</h3><p>Mem-parsing input protokol AWS dan menghasilkan respons berformat AWS. Dibuat <b>tipis</b>: tidak berisi logika bisnis. Namanya mengikuti protokol: <code>*Controller</code> (REST), <code>*QueryHandler</code> (Query), <code>*JsonHandler</code> (JSON 1.1).</p></div>
+  <div class="card"><h3>3. Service</h3><p>Logika bisnis layanan, mis. <code>SqsService</code>, <code>S3Service</code>, <code>LambdaService</code>. Kesalahan domain dilempar sebagai <code>AwsException</code> dengan kode error AWS.</p></div>
+  <div class="card"><h3>4. Model &amp; Storage</h3><p>Objek domain di <code>model/</code>. State disimpan lewat <code>StorageFactory</code>, yang membuat <code>StorageBackend</code> sesuai mode dan membungkusnya dengan namespace akun.</p></div>
+</div>
+
+<h2>Struktur paket</h2>
+<pre><code>src/main/java/io/github/hectorvent/floci/
+├── config/          ← EmulatorConfig, TLS, validasi startup, partisi, CA sertifikat
+├── core/
+│   ├── common/      ← dispatcher protokol, filter, error, ARN, region, pagination, IAM
+│   ├── resource/    ← Resource Explorer: penyedia daftar resource lintas layanan
+│   └── storage/     ← StorageBackend, StorageFactory, InMemory/Persistent/Hybrid/Wal
+├── lifecycle/       ← EmulatorLifecycle, health, info, UI sidecar, init hooks
+├── services/        ← 132 paket layanan (s3, sqs, lambda, dynamodb, iam, ...)
+│   └── &lt;svc&gt;/
+│       ├── *Controller.java   (REST JSON / REST XML)
+│       ├── *QueryHandler.java (Query)
+│       ├── *JsonHandler.java  (JSON 1.1)
+│       ├── *Service.java      (logika)
+│       └── model/
+└── tools/           ← alat bantu (mis. katalog AMI)</code></pre>
+<p class="note"><strong>Catatan:</strong> nama paket masih <code>io.github.hectorvent.floci</code> karena proyek awalnya dibuat oleh Hector Ventura sebelum pindah ke organisasi <code>floci-io</code>.</p>
+
+<h2>Kelas inti yang wajib dikenal</h2>
+<div class="table-wrap"><table>
+<tr><th>Kelas</th><th>Paket</th><th>Fungsi</th></tr>
+<tr><td><code>EmulatorConfig</code></td><td>config</td><td>Antarmuka konfigurasi bertipe untuk semua properti <code>floci.*</code> (port, region, storage, layanan). Dipetakan dari <code>application.yml</code> dan variabel <code>FLOCI_*</code>.</td></tr>
+<tr><td><code>ResolvedServiceCatalog</code></td><td>core.common</td><td><b>Titik registrasi layanan.</b> Satu <code>descriptor(...)</code> per layanan: kunci, status aktif, mode storage, namespace XML, protokol, prefix <code>X-Amz-Target</code>, nama signing SigV4.</td></tr>
+<tr><td><code>ServiceRegistry</code></td><td>core.common</td><td>Hanya membaca katalog: layanan mana yang aktif ("running") atau tidak ("available").</td></tr>
+<tr><td><code>ProtocolClaimer</code></td><td>core.common</td><td>Mengenali protokol wire dari method, path, header, query (mengikuti panduan Smithy).</td></tr>
+<tr><td><code>AwsJson11Controller</code></td><td>core.common</td><td>Dispatcher <code>application/x-amz-json-1.1</code>: membaca <code>X-Amz-Target</code> lalu <code>switch</code> ke handler (SSM, KMS, Logs, ECS, ...).</td></tr>
+<tr><td><code>AwsJsonController</code></td><td>core.common</td><td>Dispatcher JSON 1.0 (DynamoDB, SQS mode JSON). Berjalan di virtual thread.</td></tr>
+<tr><td><code>AwsJsonCborController</code></td><td>core.common</td><td>Dispatcher CBOR / Smithy RPC v2 (DynamoDB, SQS, SNS, Kinesis, Step Functions, CloudWatch).</td></tr>
+<tr><td><code>AwsQueryController</code></td><td>core.common</td><td>Dispatcher Query (form POST → XML): SQS, SNS, IAM, STS, RDS, CloudFormation, dll.</td></tr>
+<tr><td><code>AwsException</code> + <code>AwsExceptionMapper</code></td><td>core.common</td><td>Error domain dengan kode AWS, dipetakan ke XML/JSON sesuai protokol.</td></tr>
+<tr><td><code>RegionResolver</code> / <code>RequestContext</code></td><td>core.common</td><td>Region dan account ID untuk request saat ini; pembuat ARN.</td></tr>
+<tr><td><code>AwsArnUtils</code></td><td>core.common</td><td>Membuat, mengenali, dan membaca ARN dengan benar di semua partisi.</td></tr>
+<tr><td><code>StorageFactory</code></td><td>core.storage</td><td>Membuat storage per layanan sesuai mode; <code>loadAll</code>/<code>flushAll</code>/<code>shutdownAll</code>.</td></tr>
+<tr><td><code>AccountAwareStorageBackend</code></td><td>core.storage</td><td>Pembungkus yang memberi prefix akun pada setiap key (isolasi multi-akun).</td></tr>
+<tr><td><code>EmulatorLifecycle</code></td><td>lifecycle</td><td>Orkestrasi startup/shutdown: hooks, load storage, pemulihan runtime, server metadata.</td></tr>
+<tr><td><code>Resettable</code></td><td>core.common</td><td>Antarmuka untuk layanan yang bisa dikosongkan (mis. lewat endpoint reset).</td></tr>
+</table></div>
+
+<h2>Dependency injection (CDI)</h2>
+<p>Semua komponen adalah <i>bean</i> CDI (<code>@ApplicationScoped</code>) yang disuntikkan lewat konstruktor <code>@Inject</code>.
+Contoh: <code>AwsJson11Controller</code> menerima puluhan handler di konstruktornya, lalu memilih salah satu dengan <code>switch (serviceKey)</code>.
+Pola konstruktor ini juga memudahkan tes: konstruktor <i>package-private</i> dipakai untuk menyuntikkan objek tiruan.</p>
+<pre><code>// Potongan nyata dari AwsJson11Controller.handle(...)
+Response delegated = switch (serviceKey) {
+    case "ssm"            -&gt; ssmJsonHandler.handle(action, request, region, authorization);
+    case "events"         -&gt; eventBridgeHandler.handle(action, request, region);
+    case "logs"           -&gt; cloudWatchLogsHandler.handle(action, request, region);
+    case "kms"            -&gt; kmsJsonHandler.handle(action, request, region);
+    case "secretsmanager" -&gt; secretsManagerJsonHandler.handle(action, request, region, authorization);
+    // ... puluhan layanan lain
+    default -&gt; null;   // → UnknownOperationException
+};</code></pre>
+
+<h2>Komponen di luar proses Floci</h2>
+<div id="outside"></div>
+<p>Untuk layanan berbasis container, Floci berperan sebagai <b>pengatur</b>: ia memanggil Docker API untuk membuat container,
+lalu menyediakan proxy TCP (RDS, ElastiCache, MemoryDB, Neptune) atau membiarkan Docker mem-bind port langsung (EKS, OpenSearch, Amazon MQ, konsol web).
+Lihat <a href="konfigurasi.html#port">peta port</a> dan <a href="lambda.html">Lambda &amp; Container</a>.</p>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/flow.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("layers"), {
+  title: "Request menembus lapisan demi lapisan",
+  width: 860, height: 420,
+  zones: [
+    { x: 190, y: 10, w: 650, h: 400, label: "Proses Floci (Quarkus, port 4566)" }
+  ],
+  nodes: [
+    { id: "cli", x: 15, y: 180, w: 150, h: 60, label: "Klien AWS", sub: "SDK / CLI", kind: "client", icon: "💻" },
+    { id: "vertx", x: 215, y: 180, w: 140, h: 60, label: "Vert.x HTTP", sub: "server", kind: "filter" },
+    { id: "filters", x: 400, y: 40, w: 190, h: 64, label: "Rantai Filter", sub: "akun · protokol · IAM", kind: "filter", icon: "🛡️" },
+    { id: "ctrl", x: 400, y: 180, w: 190, h: 60, label: "Controller / Handler", sub: "parse protokol", kind: "ctrl" },
+    { id: "svc", x: 400, y: 320, w: 190, h: 60, label: "Service", sub: "logika bisnis", kind: "svc" },
+    { id: "store", x: 650, y: 320, w: 170, h: 60, label: "StorageFactory", sub: "memory/disk per akun", kind: "store", icon: "💾" },
+    { id: "err", x: 650, y: 40, w: 170, h: 64, label: "AwsExceptionMapper", sub: "error format AWS", kind: "ext" },
+    { id: "resp", x: 650, y: 180, w: 170, h: 60, label: "Response Filter", sub: "request-id, CORS", kind: "filter" }
+  ],
+  steps: [
+    { from: "cli", to: "vertx", tag: "HTTP", title: "Koneksi masuk", text: "Vert.x (server HTTP di balik Quarkus) menerima koneksi di port 4566." },
+    { from: "vertx", to: "filters", tag: "filter", title: "Lewat rantai filter", text: "Filter menentukan akun &amp; region, mengenali protokol wire, dan (jika diaktifkan) memverifikasi SigV4 serta mengevaluasi kebijakan IAM." },
+    { from: "filters", to: "ctrl", tag: "lolos", title: "Dispatch ke controller", text: "JAX-RS mencocokkan path/content-type. Untuk JSON 1.1, <code>AwsJson11Controller</code> membaca <code>X-Amz-Target</code> dan memilih handler." },
+    { from: "ctrl", to: "svc", tag: "action", title: "Panggil service", text: "Handler mengubah JSON/XML/form menjadi parameter Java lalu memanggil method service." },
+    { from: "svc", to: "store", tag: "put/get", title: "Baca/tulis state", text: "Service membaca dan menulis data lewat storage yang sudah diberi namespace akun." },
+    { from: "store", to: "svc", tag: "data", title: "Data kembali", text: "Storage mengembalikan objek model ke service.", kind: "ok" },
+    { from: "svc", to: "ctrl", tag: "hasil", title: "Hasil ke controller", text: "Service mengembalikan hasil. Kalau ada pelanggaran aturan, ia melempar <code>AwsException</code>." },
+    { from: "ctrl", to: "err", tag: "error?", title: "(Jika error) dipetakan", text: "<code>AwsExceptionMapper</code> mengubah exception menjadi XML/JSON error persis seperti AWS, mis. <code>QueueDoesNotExist</code>.", kind: "err" },
+    { from: "ctrl", to: "resp", tag: "200", title: "Response filter", text: "Filter respons menambahkan <code>x-amz-request-id</code>, header tanggal, dan CORS.", kind: "ok" },
+    { from: "resp", to: "cli", tag: "AWS reply", title: "Jawaban ke klien", text: "Klien menerima respons berformat AWS.", kind: "ok" }
+  ]
+});
+FlowDiagram.mount(document.getElementById("outside"), {
+  title: "Floci sebagai pengatur container",
+  width: 860, height: 300,
+  nodes: [
+    { id: "f", x: 20, y: 120, w: 160, h: 60, label: "Floci", sub: "service RDS/Lambda/…", kind: "ctrl", icon: "☁️" },
+    { id: "sock", x: 250, y: 120, w: 160, h: 60, label: "docker.sock", sub: "Docker Engine API", kind: "ext", icon: "🐳" },
+    { id: "pg", x: 500, y: 20, w: 160, h: 50, label: "PostgreSQL", sub: "RDS", kind: "ext" },
+    { id: "redis", x: 500, y: 90, w: 160, h: 50, label: "Redis/Valkey", sub: "ElastiCache", kind: "ext" },
+    { id: "lam", x: 500, y: 160, w: 160, h: 50, label: "Runtime Lambda", sub: "python/node/java…", kind: "ext" },
+    { id: "k3s", x: 500, y: 230, w: 160, h: 50, label: "k3s", sub: "EKS", kind: "ext" },
+    { id: "proxy", x: 710, y: 55, w: 130, h: 60, label: "Proxy TCP", sub: "7001 / 6379", kind: "filter" }
+  ],
+  steps: [
+    { from: "f", to: "sock", tag: "create", title: "Panggil Docker API", text: "Saat Anda memanggil <code>CreateDBInstance</code>, service RDS meminta Docker membuat container." },
+    { from: "sock", to: "pg", tag: "run", title: "Container database menyala", text: "Container PostgreSQL/MySQL sungguhan berjalan di jaringan Docker yang sama dengan Floci." },
+    { from: "pg", to: "proxy", tag: "TCP", title: "Proxy di dalam Floci", text: "Floci membuka port proxy (rentang 7001–7099 untuk RDS) dan meneruskan koneksi ke container. Port ini perlu dipetakan di docker-compose." },
+    { from: "sock", to: "redis", tag: "run", title: "ElastiCache serupa", text: "Redis/Valkey dijalankan sebagai container dan diproksikan di 6379–6399." },
+    { from: "sock", to: "lam", tag: "invoke", title: "Lambda", text: "Setiap fungsi Lambda berjalan di container runtime yang berbicara ke Runtime API milik Floci." },
+    { from: "sock", to: "k3s", tag: "run", title: "EKS", text: "Kluster EKS memakai k3s; port API server (6500–6599) di-bind langsung oleh Docker." }
+  ]
+});
+</script>
+</body>
+</html>

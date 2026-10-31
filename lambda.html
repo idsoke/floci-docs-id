@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lambda &amp; Container — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Cara Kerja › Lambda &amp; Container</div>
+<h1>Lambda: Fungsi di Container Sungguhan</h1>
+<p class="lead">Floci menjalankan kode Lambda Anda di dalam container Docker yang memakai image runtime resmi AWS
+(<code>public.ecr.aws/lambda/...</code>). Container itu berbicara ke <b>Runtime API</b> yang disediakan Floci, persis seperti di AWS.</p>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Lambda seperti <b>tukang panggilan</b>. Saat ada pekerjaan, Floci "memanggil tukang" (menyalakan container),
+memberinya tugas (event), menunggu hasilnya, lalu mengirim hasil ke pemesan.
+Supaya tidak lambat, tukang yang baru selesai <b>disuruh menunggu sebentar di pos</b> (warm pool). Kalau ada pekerjaan baru
+untuk fungsi yang sama, tukang yang sedang menunggu itu langsung dipakai (warm start) tanpa harus dipanggil dari rumah (cold start).</p></div>
+
+<h2>Komponen di paket <code>services/lambda</code></h2>
+<div class="table-wrap"><table>
+<tr><th>Komponen</th><th>Peran</th></tr>
+<tr><td><code>LambdaController</code> dkk.</td><td>REST JSON: <code>/2015-03-31/functions/...</code> (create, invoke, alias, versi, ESM, URL, concurrency).</td></tr>
+<tr><td><code>LambdaService</code></td><td>Logika fungsi: simpan konfigurasi, versi, alias, kode ZIP.</td></tr>
+<tr><td><code>LambdaExecutorService</code></td><td>Menjalankan invocation: ambil container dari warm pool atau luncurkan baru, kirim event, tunggu hasil, terapkan timeout.</td></tr>
+<tr><td><code>WarmPool</code>, <code>ProvisionedConcurrencyPool</code></td><td>Menyimpan container idle per fungsi; provisioned concurrency menyiapkan container sebelum dibutuhkan.</td></tr>
+<tr><td><code>launcher/ContainerLauncher</code>, <code>ImageResolver</code>, <code>ImageCacheService</code></td><td>Menentukan image runtime, pull, dan membuat container dengan env, mount kode, layer, dan kredensial role eksekusi.</td></tr>
+<tr><td><code>runtime/RuntimeApiServer</code></td><td>Server HTTP Runtime API (port 12000–12499, satu per container berjalan): <code>/runtime/invocation/next</code>, <code>/response</code>, <code>/error</code>.</td></tr>
+<tr><td><code>LambdaConcurrencyLimiter</code></td><td>Batas konkurensi region (default 1000) dan reserved concurrency per fungsi.</td></tr>
+<tr><td><code>SqsEventSourcePoller</code>, <code>KinesisEventSourcePoller</code>, <code>DynamoDbStreamsEventSourcePoller</code></td><td>Event source mapping: menarik batch dari sumber dan memanggil fungsi.</td></tr>
+<tr><td><code>AsyncInvokeDestinationRouter</code></td><td>Invocation async: retry, umur event maksimum, destination on-success/on-failure, DLQ.</td></tr>
+<tr><td><code>durable/</code></td><td>Durable Functions: checkpoint, replay, callback, timer.</td></tr>
+<tr><td><code>launcher/kubernetes</code></td><td>Executor alternatif: menjalankan fungsi sebagai pod Kubernetes, bukan container Docker.</td></tr>
+</table></div>
+
+<h2>Animasi: invoke sinkron (cold start)</h2>
+<div id="cold"></div>
+
+<h2>Animasi: invoke berikutnya (warm start)</h2>
+<div id="warm"></div>
+
+<h2>Animasi: SQS → Lambda (event source mapping)</h2>
+<div id="esm"></div>
+<ul>
+  <li>Poller memakai timer Vert.x (non-blocking), interval default <code>FLOCI_SERVICES_LAMBDA_POLL_INTERVAL_MS=1000</code>.</li>
+  <li>Satu poll aktif per ESM sehingga pesan yang sama tidak dikirim bersamaan.</li>
+  <li>Mendukung <code>BatchSize</code>, <code>MaximumBatchingWindowInSeconds</code>, <code>ScalingConfig</code>, <code>FilterCriteria</code>, dan <code>ReportBatchItemFailures</code>.</li>
+  <li>Visibility timeout yang dipakai saat menerima pesan ditambah budget init, agar pesan tidak dikirim ke konsumen lain selama cold start.</li>
+</ul>
+
+<h2>Invocation asinkron</h2>
+<p><code>InvocationType: Event</code> langsung dijawab <b>202</b>, lalu dijalankan di pool latar. Jika gagal, dicoba ulang hingga
+<code>MaximumRetryAttempts</code> (default 2, total 3 percobaan) selama umur event belum melewati <code>MaximumEventAgeInSeconds</code> (default 6 jam).
+Retry pertama menunggu 1 menit, kedua 2 menit (atur dengan <code>FLOCI_SERVICES_LAMBDA_ASYNC_RETRY_DELAY_SECONDS</code>, <code>0</code> untuk tes cepat).
+Setelah habis, event dikirim ke destination on-failure atau DLQ.</p>
+
+<h2>Hot reload untuk pengembangan</h2>
+<div class="grid two">
+  <div class="card"><h3>📁 Bind mount</h3><p>Buat fungsi dengan <code>--code S3Bucket=hot-reload,S3Key=/path/absolut/kode</code>. Folder di host di-mount langsung ke container. Simpan file → invoke berikutnya memakai kode baru. Perlu <code>FLOCI_SERVICES_LAMBDA_HOT_RELOAD_ENABLED=true</code> dan <code>..._ALLOWED_PATHS</code>.</p></div>
+  <div class="card"><h3>🔁 Reactive S3 Sync</h3><p>Jika fungsi di-deploy dari objek S3, menimpa objek tersebut otomatis men-deploy ulang fungsi dan membuang container warm yang lama. Aktif secara default.</p></div>
+</div>
+
+<h2>Konfigurasi penting</h2>
+<div class="table-wrap"><table>
+<tr><th>Variabel</th><th>Default</th><th>Arti</th></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_EPHEMERAL</code></td><td><code>false</code></td><td>Hapus container setelah setiap invocation (tanpa warm pool)</td></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_CONTAINER_IDLE_TIMEOUT_SECONDS</code></td><td><code>300</code></td><td>Container idle dimatikan setelah 5 menit</td></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_WARM_POOL_MAX_PER_FUNCTION</code></td><td><code>max(4, cpus)</code></td><td>Maksimum container warm per fungsi</td></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_INIT_TIMEOUT_SECONDS</code></td><td><code>10</code></td><td>Batas fase init (naikkan untuk Java di CI yang sibuk)</td></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_DEFAULT_TIMEOUT_SECONDS</code></td><td><code>3</code></td><td>Timeout default fungsi</td></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_RUNTIME_API_BASE_PORT</code> / <code>_MAX_PORT</code></td><td><code>12000</code> / <code>12499</code></td><td>Rentang port Runtime API; lebarnya membatasi jumlah eksekusi bersamaan</td></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_HONOUR_ARCHITECTURES</code></td><td><code>false</code></td><td>Pakai arsitektur yang dideklarasikan (arm64/x86_64), bukan arsitektur host</td></tr>
+<tr><td><code>FLOCI_SERVICES_LAMBDA_DOCKER_HOST_OVERRIDE</code></td><td>(auto)</td><td>Alamat yang dipakai container untuk menghubungi Runtime API (mis. untuk Podman rootless)</td></tr>
+</table></div>
+<p class="note"><strong>Wajib:</strong> Lambda dengan executor Docker butuh socket Docker: <code>-v /var/run/docker.sock:/var/run/docker.sock</code>.</p>
+
+<h2>Contoh lengkap</h2>
+<pre><code># handler.py
+def handler(event, context):
+    return {"pesan": f"Halo, {event.get('nama', 'dunia')}!"}
+
+zip fn.zip handler.py
+aws lambda create-function --function-name halo \
+  --runtime python3.12 --handler handler.handler \
+  --role arn:aws:iam::000000000000:role/lambda-role \
+  --zip-file fileb://fn.zip
+aws lambda invoke --function-name halo \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"nama":"Idris"}' out.json &amp;&amp; cat out.json
+# {"pesan": "Halo, Idris!"}</code></pre>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/flow.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("cold"), {
+  title: "Invoke pertama: container belum ada",
+  width: 900, height: 380,
+  zones: [ { x: 175, y: 8, w: 470, h: 364, label: "Proses Floci" }, { x: 660, y: 8, w: 232, h: 364, label: "Docker" } ],
+  nodes: [
+    { id: "cli", x: 10, y: 160, w: 145, h: 60, label: "Klien", sub: "lambda invoke", kind: "client", icon: "💻" },
+    { id: "ctl", x: 195, y: 40, w: 160, h: 56, label: "LambdaController", sub: "POST …/invocations", kind: "ctrl" },
+    { id: "exec", x: 195, y: 160, w: 160, h: 60, label: "LambdaExecutor\nService", kind: "svc" },
+    { id: "pool", x: 195, y: 290, w: 160, h: 56, label: "WarmPool", sub: "kosong", kind: "store" },
+    { id: "rapi", x: 420, y: 160, w: 200, h: 60, label: "RuntimeApiServer", sub: "port 12000", kind: "ctrl", icon: "🔌" },
+    { id: "launch", x: 420, y: 290, w: 200, h: 56, label: "ContainerLauncher", sub: "image + kode + env", kind: "svc" },
+    { id: "ctr", x: 690, y: 160, w: 180, h: 70, label: "Container\npython3.12", sub: "/var/task = kode", kind: "ext", icon: "🐳" }
+  ],
+  steps: [
+    { from: "cli", to: "ctl", tag: "Invoke", title: "Request invoke", text: "<code>POST /2015-03-31/functions/halo/invocations</code> dengan payload JSON." },
+    { from: "ctl", to: "exec", tag: "event", title: "Serahkan ke executor", text: "Controller memvalidasi fungsi, versi/alias, dan concurrency, lalu menyerahkan event ke executor." },
+    { from: "exec", to: "pool", tag: "ada?", title: "Cek warm pool", text: "Belum ada container idle untuk fungsi ini → <b>cold start</b>." },
+    { from: "exec", to: "launch", tag: "launch", title: "Luncurkan container", text: "<code>ImageResolver</code> memilih <code>public.ecr.aws/lambda/python:3.12</code> (pull jika belum ada). Kode ZIP diekstrak, layer dipasang, env <code>AWS_LAMBDA_RUNTIME_API</code> diisi, kredensial role eksekusi disuntikkan." },
+    { from: "launch", to: "ctr", tag: "docker run", title: "Container menyala", text: "Runtime AWS di dalam container mulai, menjalankan inisialisasi statis kode Anda. Budget init default 10 detik." },
+    { from: "ctr", to: "rapi", tag: "GET next", title: "Runtime meminta pekerjaan", text: "Runtime memanggil <code>GET /2018-06-01/runtime/invocation/next</code> ke Runtime API milik Floci." },
+    { from: "rapi", to: "ctr", tag: "event", title: "Event diberikan", text: "Floci membalas dengan payload dan header seperti <code>Lambda-Runtime-Aws-Request-Id</code> dan deadline. Timeout fungsi mulai dihitung di sini." },
+    { from: "ctr", to: "rapi", tag: "POST response", title: "Handler selesai", text: "Runtime mengirim hasil ke <code>/runtime/invocation/{id}/response</code> (atau <code>/error</code> jika exception).", kind: "ok" },
+    { from: "rapi", to: "exec", tag: "hasil", title: "Hasil ke executor", text: "Executor menerima hasil. Log fungsi dialirkan ke CloudWatch Logs grup <code>/aws/lambda/halo</code>." },
+    { from: "exec", to: "pool", tag: "simpan", title: "Container masuk warm pool", text: "Container tidak dimatikan; ia menunggu di warm pool sampai idle timeout (default 300 detik)." },
+    { from: "exec", to: "cli", tag: "200 + payload", title: "Jawaban ke klien", text: "Klien menerima <code>{\"pesan\":\"Halo, Idris!\"}</code> dengan header <code>X-Amz-Executed-Version</code>.", kind: "ok" }
+  ]
+});
+FlowDiagram.mount(document.getElementById("warm"), {
+  title: "Invoke kedua: container sudah hangat",
+  width: 860, height: 250,
+  nodes: [
+    { id: "cli", x: 10, y: 95, w: 140, h: 60, label: "Klien", kind: "client", icon: "💻" },
+    { id: "exec", x: 200, y: 95, w: 160, h: 60, label: "Executor", kind: "svc" },
+    { id: "pool", x: 200, y: 10, w: 160, h: 50, label: "WarmPool", sub: "1 idle", kind: "store" },
+    { id: "rapi", x: 420, y: 95, w: 170, h: 60, label: "Runtime API", kind: "ctrl" },
+    { id: "ctr", x: 660, y: 95, w: 180, h: 60, label: "Container (warm)", sub: "sudah menunggu next", kind: "ext", icon: "🐳" }
+  ],
+  steps: [
+    { from: "cli", to: "exec", tag: "Invoke", title: "Request baru", text: "Fungsi yang sama dipanggil lagi." },
+    { from: "exec", to: "pool", tag: "ambil", title: "Ambil dari warm pool", text: "Ada container idle → dipinjam. Tidak ada pull image, tidak ada init." },
+    { from: "exec", to: "rapi", tag: "antre", title: "Event dimasukkan", text: "Event dimasukkan ke antrean Runtime API milik container itu." },
+    { from: "rapi", to: "ctr", tag: "event", title: "Langsung diproses", text: "Container yang sedang menunggu <code>/next</code> langsung menerima event." },
+    { from: "ctr", to: "rapi", tag: "response", title: "Selesai dalam milidetik", text: "Hasil dikirim balik.", kind: "ok" },
+    { from: "exec", to: "cli", tag: "200", title: "Jawaban", text: "Warm start jauh lebih cepat daripada cold start.", kind: "ok" }
+  ]
+});
+FlowDiagram.mount(document.getElementById("esm"), {
+  title: "Event Source Mapping: SQS memicu Lambda",
+  width: 880, height: 300,
+  nodes: [
+    { id: "prod", x: 10, y: 20, w: 150, h: 54, label: "Produser", sub: "SendMessage", kind: "client" },
+    { id: "q", x: 220, y: 20, w: 170, h: 54, label: "Antrean SQS", sub: "pesanan", kind: "store", icon: "📨" },
+    { id: "poll", x: 220, y: 140, w: 170, h: 60, label: "SqsEventSource\nPoller", sub: "tiap 1 detik", kind: "svc", icon: "⏰" },
+    { id: "exec", x: 470, y: 140, w: 170, h: 60, label: "Lambda Executor", kind: "svc" },
+    { id: "fn", x: 700, y: 140, w: 160, h: 60, label: "Fungsi", sub: "proses batch", kind: "ext", icon: "λ" },
+    { id: "dlq", x: 470, y: 240, w: 170, h: 50, label: "Kembali ke antrean", sub: "atau DLQ", kind: "ext" }
+  ],
+  steps: [
+    { from: "prod", to: "q", tag: "msg", title: "Pesan masuk antrean", text: "Aplikasi mengirim pesan ke antrean <code>pesanan</code>." },
+    { from: "poll", to: "q", tag: "Receive", title: "Poller menarik batch", text: "Poller menerima hingga <code>BatchSize</code> pesan. Pesan menjadi tidak terlihat (visibility timeout)." },
+    { from: "q", to: "poll", tag: "batch", title: "Batch diterima", text: "Jika <code>FilterCriteria</code> ada, pesan yang tidak cocok dibuang dari batch. <code>MaximumBatchingWindowInSeconds</code> bisa menahan batch sampai penuh." },
+    { from: "poll", to: "exec", tag: "Records[]", title: "Panggil fungsi", text: "Event berformat <code>{\"Records\":[{\"eventSource\":\"aws:sqs\",...}]}</code> seperti AWS." },
+    { from: "exec", to: "fn", tag: "invoke", title: "Fungsi memproses", text: "Container menjalankan handler Anda." },
+    { from: "fn", to: "exec", tag: "sukses", title: "Berhasil", text: "Jika sukses, poller menghapus pesan dari antrean.", kind: "ok" },
+    { from: "exec", to: "dlq", tag: "gagal", title: "Jika gagal", text: "Pesan kembali terlihat setelah visibility timeout dan dicoba ulang. Setelah <code>maxReceiveCount</code>, dipindah ke DLQ. Dengan <code>ReportBatchItemFailures</code>, hanya pesan yang gagal yang diulang.", kind: "err" }
+  ]
+});
+</script>
+</body>
+</html>

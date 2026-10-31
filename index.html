@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Floci — Dokumentasi</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Dokumentasi Floci · v2.4.0 · disusun dari kode sumber <code>floci-io/floci</code> (commit <code>d173d65</code>)</div>
+<h1>Floci: AWS di Laptop Anda</h1>
+<p class="lead">Floci adalah emulator AWS lokal yang gratis dan open-source. Ia meniru 130+ layanan AWS
+(S3, SQS, DynamoDB, Lambda, IAM, dan lainnya) di satu port, <code>http://localhost:4566</code>,
+sehingga Anda bisa mengembangkan dan menguji aplikasi tanpa akun AWS, tanpa biaya, dan tanpa internet.</p>
+
+<div class="simple">
+  <div class="tag">Penjelasan sederhana</div>
+  <p>Bayangkan AWS sebagai sebuah <b>mal besar</b> dengan ratusan toko (S3 = gudang file, SQS = kotak surat antrean,
+  DynamoDB = lemari arsip, Lambda = tukang yang dipanggil saat dibutuhkan). Kalau mau latihan berjualan di mal sungguhan,
+  Anda harus menyewa tempat dan membayar.</p>
+  <p><b>Floci adalah replika mal itu di rumah Anda.</b> Bentuk pintu, formulir, dan cara bicaranya persis sama,
+  jadi aplikasi Anda tidak bisa membedakan apakah ia sedang bicara ke AWS asli atau ke Floci.
+  Bedanya, semuanya berjalan di komputer Anda sendiri dan gratis.</p>
+</div>
+
+<div class="note tip"><strong>🧭 Belum pernah memakai AWS?</strong> Mulai dari kursus praktik
+<a href="belajar.html"><b>Belajar AWS dari Nol dengan Floci</b></a>: 8 modul (S3, SQS, SNS, DynamoDB, Lambda, IAM, dan proyek akhir)
+dengan animasi, perintah siap salin, latihan, kunci jawaban, kuis, dan checklist progres.</div>
+
+<div class="stats">
+  <div class="stat"><b>137</b><span>baris layanan di katalog resmi</span></div>
+  <div class="stat"><b>132</b><span>paket layanan di <code>services/</code></span></div>
+  <div class="stat"><b>~3.000</b><span>file Java produksi</span></div>
+  <div class="stat"><b>~3.300</b><span>file Java tes</span></div>
+  <div class="stat"><b>1</b><span>port untuk semua API (4566)</span></div>
+  <div class="stat"><b>4</b><span>mode penyimpanan data</span></div>
+</div>
+
+<div id="hero-flow"></div>
+
+<h2>Mulai dari mana?</h2>
+<div class="grid">
+  <a class="card" href="konsep.html"><div class="icon">💡</div><h3>Konsep Dasar</h3><p>Apa itu emulator, kenapa perlu, dan istilah penting dengan analogi sehari-hari.</p></a>
+  <a class="card" href="penggunaan.html"><div class="icon">🚀</div><h3>Cara Memakai</h3><p>Jalankan Floci, sambungkan AWS CLI, SDK, Terraform, dan Testcontainers.</p></a>
+  <a class="card" href="arsitektur.html"><div class="icon">🏛️</div><h3>Arsitektur</h3><p>Lapisan-lapisan di dalam Floci dan peran tiap kelas inti.</p></a>
+  <a class="card" href="alur-request.html"><div class="icon">🔀</div><h3>Alur Request</h3><p>Animasi perjalanan satu panggilan API dari klien sampai jawaban kembali.</p></a>
+  <a class="card" href="protokol.html"><div class="icon">📡</div><h3>Protokol AWS</h3><p>Query, JSON 1.1, REST JSON, REST XML, CBOR, dan cara Floci mengenalinya.</p></a>
+  <a class="card" href="storage.html"><div class="icon">💾</div><h3>Penyimpanan Data</h3><p>Mode memory, persistent, hybrid, dan WAL, dianimasikan.</p></a>
+  <a class="card" href="keamanan.html"><div class="icon">🔐</div><h3>Akun, IAM & Partisi</h3><p>Isolasi multi-akun, penegakan IAM opsional, dan partisi AWS.</p></a>
+  <a class="card" href="lifecycle.html"><div class="icon">♻️</div><h3>Siklus Hidup</h3><p>Apa yang terjadi saat Floci menyala dan mati, termasuk init hooks.</p></a>
+  <a class="card" href="lambda.html"><div class="icon">λ</div><h3>Lambda & Container</h3><p>Fungsi Lambda dijalankan di container Docker sungguhan.</p></a>
+  <a class="card" href="event.html"><div class="icon">🔔</div><h3>Alur Event</h3><p>S3 → SQS → Lambda, SNS fan-out, EventBridge, dan lainnya.</p></a>
+  <a class="card" href="layanan.html"><div class="icon">📚</div><h3>Katalog Layanan</h3><p>Tabel semua layanan, protokol, dan jumlah operasinya. Bisa dicari.</p></a>
+  <a class="card" href="konfigurasi.html"><div class="icon">⚙️</div><h3>Konfigurasi & Port</h3><p>Variabel <code>FLOCI_*</code> yang paling penting dan peta port.</p></a>
+  <a class="card" href="kontribusi.html"><div class="icon">🛠️</div><h3>Panduan Kontributor</h3><p>Build, tes, aturan kode, dan langkah menambah layanan baru.</p></a>
+  <a class="card" href="glosarium.html"><div class="icon">📖</div><h3>Glosarium</h3><p>Kamus istilah: ARN, SigV4, ESM, WAL, partisi, dan lainnya.</p></a>
+</div>
+
+<h2>Floci dalam satu paragraf (versi teknis)</h2>
+<p>Floci adalah aplikasi <b>Java 25</b> di atas framework <b>Quarkus 3.40</b>. Semua permintaan HTTP masuk ke port 4566,
+melewati rangkaian <i>filter</i> JAX-RS (penentuan akun, klaim protokol, verifikasi tanda tangan opsional, penegakan IAM opsional),
+lalu di-<i>dispatch</i> ke <i>controller</i> sesuai protokol AWS-nya. Controller memanggil <i>service</i> berisi logika bisnis,
+yang menyimpan state lewat <code>StorageFactory</code> (memory/persistent/hybrid/WAL) dengan namespace per akun.
+Layanan "berat" seperti Lambda, RDS, ElastiCache, ECS, EKS, dan OpenSearch menjalankan <b>container Docker sungguhan</b>.
+Tujuan utamanya adalah <b>kompatibilitas wire-protocol</b>: AWS SDK, CLI, Terraform, dan CDK bekerja tanpa diubah.</p>
+
+<h2>Keluarga Floci</h2>
+<div class="table-wrap"><table>
+<tr><th>Emulator</th><th>Cloud</th><th>Port</th></tr>
+<tr><td><b>floci</b> (dokumentasi ini)</td><td>AWS</td><td><code>4566</code></td></tr>
+<tr><td>floci-az</td><td>Azure</td><td><code>4577</code></td></tr>
+<tr><td>floci-gcp</td><td>Google Cloud</td><td><code>4588</code></td></tr>
+<tr><td>floci-oci</td><td>Oracle Cloud</td><td><code>4599</code></td></tr>
+</table></div>
+<p>Nama "Floci" berasal dari <i>floccus</i>, jenis awan yang bentuknya seperti popcorn.</p>
+
+<div class="pager"></div>
+<footer class="foot">Dokumentasi ini disusun dari README, AGENTS.md, folder <code>docs/</code>, dan pembacaan langsung kode sumber Floci.
+Jika ada perbedaan, kode sumber dan dokumentasi resmi di floci.io yang berlaku.</footer>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/flow.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("hero-flow"), {
+  title: "Gambaran besar: aplikasi Anda bicara ke Floci, bukan ke AWS",
+  width: 860, height: 330,
+  intro: "Satu panggilan API, dari awal sampai akhir",
+  nodes: [
+    { id: "app", x: 20, y: 140, w: 150, h: 60, label: "Aplikasi Anda", sub: "SDK / CLI / Terraform", kind: "client", icon: "💻" },
+    { id: "port", x: 230, y: 140, w: 140, h: 60, label: "localhost:4566", sub: "satu pintu masuk", kind: "filter", icon: "🚪" },
+    { id: "router", x: 430, y: 140, w: 150, h: 60, label: "Router Floci", sub: "kenali protokol & layanan", kind: "ctrl", icon: "🔀" },
+    { id: "s3", x: 650, y: 20, w: 180, h: 50, label: "Layanan S3", kind: "svc", icon: "🪣" },
+    { id: "sqs", x: 650, y: 95, w: 180, h: 50, label: "Layanan SQS", kind: "svc", icon: "📨" },
+    { id: "ddb", x: 650, y: 170, w: 180, h: 50, label: "Layanan DynamoDB", kind: "svc", icon: "🗄️" },
+    { id: "lam", x: 650, y: 245, w: 180, h: 50, label: "Layanan Lambda", kind: "svc", icon: "λ" },
+    { id: "store", x: 430, y: 255, w: 150, h: 55, label: "Penyimpanan", sub: "memori / disk", kind: "store", icon: "💾" }
+  ],
+  steps: [
+    { from: "app", to: "port", tag: "PutObject", title: "Aplikasi memanggil API", text: "Aplikasi memanggil <code>s3.putObject()</code> seperti biasa. Bedanya, endpoint-nya diarahkan ke <code>http://localhost:4566</code>." },
+    { from: "port", to: "router", tag: "HTTP", title: "Masuk lewat satu pintu", text: "Semua layanan berbagi port 4566. Floci menerima request HTTP biasa yang sudah ditandatangani SDK." },
+    { from: "router", to: "router", tag: "S3?", title: "Router mengenali tujuan", text: "Dari header, path, dan tanda tangan request, Floci tahu ini <b>S3</b> dengan protokol <b>REST XML</b>." },
+    { from: "router", to: "s3", tag: "→ S3", title: "Diteruskan ke layanan S3", text: "Controller S3 membaca bucket, key, dan isi file, lalu memanggil <code>S3Service</code>." },
+    { from: "s3", to: "store", tag: "simpan", title: "Data disimpan", text: "Metadata objek disimpan lewat <code>StorageFactory</code>, isi file ditulis ke disk. Semuanya dipisah per akun AWS." },
+    { from: "store", to: "s3", tag: "OK", title: "Penyimpanan selesai", text: "Penyimpanan mengonfirmasi bahwa data sudah tersimpan.", kind: "ok" },
+    { from: "s3", to: "app", tag: "200 + ETag", title: "Jawaban berformat AWS", text: "Floci membalas persis seperti AWS: status 200, header <code>ETag</code>, <code>x-amz-request-id</code>. SDK menerimanya tanpa curiga.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>

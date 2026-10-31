@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Peta Belajar AWS — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Belajar AWS dari Nol › Peta Belajar</div>
+<h1>Belajar AWS dari Nol dengan Floci</h1>
+<p class="lead">Kursus praktik untuk Anda yang <b>belum pernah memakai AWS sama sekali</b>. Semua latihan dijalankan di laptop
+memakai Floci: tanpa akun AWS, tanpa kartu kredit, tanpa risiko tagihan.</p>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p><b>AWS</b> itu seperti <b>mal raksasa yang menyewakan "alat"</b>: gudang file (S3), kotak surat (SQS), pengeras suara (SNS),
+lemari arsip super cepat (DynamoDB), tukang yang datang hanya saat dipanggil (Lambda), dan satpam yang mengecek kartu akses (IAM).
+Anda membayar per pemakaian.</p>
+<p><b>Floci</b> adalah <b>miniatur mal itu di laptop Anda</b>. Pintu masuk, loket, dan aturannya meniru aslinya, sehingga cara
+Anda "berbelanja" (perintah AWS CLI, kode SDK, Terraform) persis sama. Bedanya: gratis, dan kalau berantakan tinggal dihapus
+lalu mulai lagi dalam hitungan detik.</p></div>
+
+<h2>Progres Anda</h2>
+<div class="mod-progress"><div class="progress" id="overall"><div></div></div></div>
+<p id="overall-label" style="color:var(--muted);margin-top:4px"></p>
+<p style="font-size:.85rem;color:var(--muted)">Centang <b>Selesai</b> di setiap langkah modul. Progres disimpan di browser ini saja.
+<button type="button" id="reset-progress" class="copy-btn" style="position:static;opacity:1">Reset progres</button></p>
+
+<h2>Perjalanan belajar</h2>
+<div id="journey"></div>
+
+<div class="roadmap">
+  <a class="road" href="belajar-0.html" data-mod="0" data-total="6"><div class="ic">🧰</div><div><h3>Modul 0 · Persiapan</h3><p>Pasang Docker dan AWS CLI, nyalakan Floci, atur kredensial, lalu uji koneksi pertama.</p></div><div class="st"></div></a>
+  <a class="road" href="belajar-1.html" data-mod="1" data-total="7"><div class="ic">🪣</div><div><h3>Modul 1 · S3: menyimpan file</h3><p>Bucket, object, upload, download, folder (prefix), metadata, presigned URL.</p></div><div class="st"></div></a>
+  <a class="road" href="belajar-2.html" data-mod="2" data-total="7"><div class="ic">📨</div><div><h3>Modul 2 · SQS: antrean pesan</h3><p>Kirim, terima, hapus pesan, visibility timeout, dan Dead-Letter Queue.</p></div><div class="st"></div></a>
+  <a class="road" href="belajar-3.html" data-mod="3" data-total="6"><div class="ic">📣</div><div><h3>Modul 3 · SNS: siaran ke banyak penerima</h3><p>Topic, subscription, fan-out ke beberapa antrean, filter policy.</p></div><div class="st"></div></a>
+  <a class="road" href="belajar-4.html" data-mod="4" data-total="7"><div class="ic">🗃️</div><div><h3>Modul 4 · DynamoDB: database NoSQL</h3><p>Tabel, partition key dan sort key, put, get, query, update, delete.</p></div><div class="st"></div></a>
+  <a class="road" href="belajar-5.html" data-mod="5" data-total="7"><div class="ic">λ</div><div><h3>Modul 5 · Lambda: kode tanpa server</h3><p>Membuat fungsi Python, invoke, log, environment variable, trigger dari SQS.</p></div><div class="st"></div></a>
+  <a class="road" href="belajar-6.html" data-mod="6" data-total="7"><div class="ic">🔑</div><div><h3>Modul 6 · IAM: siapa boleh apa</h3><p>User, access key, policy JSON, mode penegakan IAM, dan melihat AccessDenied sungguhan.</p></div><div class="st"></div></a>
+  <a class="road" href="belajar-7.html" data-mod="7" data-total="7"><div class="ic">🏁</div><div><h3>Modul 7 · Proyek akhir</h3><p>Aplikasi mini "pemroses pesanan": S3 → SQS → Lambda → DynamoDB + notifikasi SNS.</p></div><div class="st"></div></a>
+</div>
+
+<h2>Kenapa urutannya begini?</h2>
+<div class="grid two">
+  <div class="card"><div class="icon">1️⃣</div><h3>Mulai dari yang terlihat</h3><p>S3 paling mudah dibayangkan: file masuk, file keluar. Cocok untuk membiasakan diri dengan AWS CLI.</p></div>
+  <div class="card"><div class="icon">2️⃣</div><h3>Lalu cara layanan "mengobrol"</h3><p>SQS dan SNS mengajarkan pola pesan, yang menjadi perekat hampir semua aplikasi AWS.</p></div>
+  <div class="card"><div class="icon">3️⃣</div><h3>Menyimpan data & menjalankan kode</h3><p>DynamoDB (data) dan Lambda (kode) melengkapi "batu bata" aplikasi serverless.</p></div>
+  <div class="card"><div class="icon">4️⃣</div><h3>Keamanan, lalu merangkai semuanya</h3><p>IAM paling masuk akal setelah Anda tahu layanan apa yang ingin dilindungi. Proyek akhir menggabungkan semuanya.</p></div>
+</div>
+
+<h2>Jadwal saran (±2 minggu, 1 jam per hari)</h2>
+<div class="table-wrap"><table>
+<tr><th>Hari</th><th>Materi</th><th>Target</th></tr>
+<tr><td>1</td><td>Peta Belajar + Modul 0</td><td>Floci menyala, <code>aws sts get-caller-identity</code> berhasil</td></tr>
+<tr><td>2–3</td><td>Modul 1 (S3)</td><td>Bisa upload, download, dan membuat presigned URL</td></tr>
+<tr><td>4–5</td><td>Modul 2 (SQS)</td><td>Paham kenapa pesan "hilang lalu muncul lagi" (visibility timeout)</td></tr>
+<tr><td>6</td><td>Modul 3 (SNS)</td><td>Satu publish sampai ke dua antrean</td></tr>
+<tr><td>7–8</td><td>Modul 4 (DynamoDB)</td><td>Bisa merancang key dan melakukan query</td></tr>
+<tr><td>9–10</td><td>Modul 5 (Lambda)</td><td>Fungsi Python berjalan dan dipicu SQS</td></tr>
+<tr><td>11</td><td>Modul 6 (IAM)</td><td>Melihat sendiri request ditolak lalu diizinkan oleh policy</td></tr>
+<tr><td>12–14</td><td>Modul 7 (Proyek)</td><td>Aplikasi mini berjalan dari ujung ke ujung</td></tr>
+</table></div>
+
+<h2>7 istilah yang perlu dikenal sebelum mulai</h2>
+<div class="table-wrap"><table>
+<tr><th>Istilah</th><th>Arti sederhana</th><th>Di Floci</th></tr>
+<tr><td><b>Akun AWS</b></td><td>"Rumah" tempat semua resource Anda. Punya nomor 12 digit.</td><td>Default <code>000000000000</code></td></tr>
+<tr><td><b>Region</b></td><td>Lokasi pusat data, mis. <code>us-east-1</code> (Virginia), <code>ap-southeast-3</code> (Jakarta). Resource di region berbeda saling terpisah.</td><td>Bebas pilih; kursus ini memakai <code>us-east-1</code></td></tr>
+<tr><td><b>Kredensial</b></td><td>Pasangan <i>access key ID</i> + <i>secret access key</i>, seperti username + password untuk program.</td><td>Cukup <code>test</code> / <code>test</code></td></tr>
+<tr><td><b>Endpoint</b></td><td>Alamat server yang dihubungi CLI/SDK.</td><td><code>http://localhost:4566</code> untuk semua layanan</td></tr>
+<tr><td><b>Resource</b></td><td>"Barang" yang Anda buat: bucket, antrean, tabel, fungsi.</td><td>Sama</td></tr>
+<tr><td><b>ARN</b></td><td>Alamat lengkap resource: <code>arn:aws:sqs:us-east-1:000000000000:pesanan</code>.</td><td>Sama formatnya</td></tr>
+<tr><td><b>API / Operasi</b></td><td>Setiap tindakan adalah panggilan API, mis. <code>CreateBucket</code>, <code>SendMessage</code>. Konsol web, CLI, dan SDK semuanya memanggil API yang sama.</td><td>Floci menjawab API yang sama</td></tr>
+</table></div>
+
+<h2>Apa yang <u>tidak</u> bisa dipelajari di Floci</h2>
+<p>Floci meniru <b>API</b> AWS, bukan seluruh pengalaman AWS. Hal-hal berikut perlu dipelajari dari materi resmi atau akun AWS sungguhan:</p>
+<ul>
+  <li><b>AWS Management Console</b> (tampilan web resmi AWS). Floci punya konsol sendiri di <code>http://localhost:4566/_floci/ui</code>, tetapi tampilannya berbeda.</li>
+  <li><b>Tagihan dan biaya</b>: cara harga dihitung, Free Tier, dan budget alert.</li>
+  <li><b>Jaringan sungguhan</b>: VPC, subnet, latensi antar-region, dan performa skala besar.</li>
+  <li><b>Batas (quota) dan perilaku tepat</b> di beberapa kasus tepi. Selalu uji ulang di AWS sebelum produksi.</li>
+</ul>
+
+<h2>Sumber belajar resmi lanjutan (gratis)</h2>
+<div class="table-wrap"><table>
+<tr><th>Sumber</th><th>Isi</th><th>Kapan dipakai</th></tr>
+<tr><td><a href="https://skillbuilder.aws" target="_blank" rel="noopener">AWS Skill Builder</a>: kursus <i>AWS Cloud Practitioner Essentials</i></td><td>Video dan kuis konsep dasar cloud dan AWS dari AWS sendiri</td><td>Paralel dengan Modul 0–2, untuk teori</td></tr>
+<tr><td><a href="https://skillbuilder.aws" target="_blank" rel="noopener">AWS Cloud Quest: Cloud Practitioner</a></td><td>Belajar lewat game 3D berbasis tugas</td><td>Kalau bosan dengan video</td></tr>
+<tr><td><a href="https://aws.amazon.com/education/awseducate/" target="_blank" rel="noopener">AWS Educate</a></td><td>Materi pemula dan lab, tanpa kartu kredit</td><td>Untuk mencoba konsol AWS asli secara aman</td></tr>
+<tr><td><a href="https://docs.aws.amazon.com/" target="_blank" rel="noopener">Dokumentasi AWS</a> (bagian <i>Getting started</i> tiap layanan)</td><td>Referensi resmi tiap layanan</td><td>Saat ingin tahu detail sebuah fitur</td></tr>
+<tr><td><a href="https://awscli.amazonaws.com/v2/documentation/api/latest/index.html" target="_blank" rel="noopener">Referensi AWS CLI v2</a></td><td>Semua perintah dan parameter CLI</td><td>Setiap kali menulis perintah baru</td></tr>
+<tr><td><a href="https://boto3.amazonaws.com/v1/documentation/api/latest/index.html" target="_blank" rel="noopener">Dokumentasi boto3</a> (SDK Python)</td><td>Cara memanggil AWS dari kode Python</td><td>Modul 5 ke atas</td></tr>
+<tr><td><a href="https://aws.amazon.com/architecture/well-architected/" target="_blank" rel="noopener">AWS Well-Architected</a></td><td>Prinsip merancang sistem yang andal, aman, dan hemat</td><td>Setelah proyek akhir</td></tr>
+<tr><td><a href="https://github.com/floci-io/floci/tree/main/docs/services" target="_blank" rel="noopener">docs/services di repo Floci</a></td><td>Daftar operasi yang didukung Floci per layanan</td><td>Saat sebuah perintah tidak bekerja di Floci</td></tr>
+</table></div>
+
+<div class="note tip"><strong>Langkah setelah kursus ini:</strong> sertifikasi <b>AWS Certified Cloud Practitioner</b> (dasar), lalu
+<b>Developer – Associate</b> atau <b>Solutions Architect – Associate</b>. Materi modul 1–7 di sini adalah inti dari keduanya.
+Kalau mulai memakai akun AWS sungguhan, <b>pasang budget alert lebih dulu</b> dan hapus resource setiap selesai latihan.</div>
+
+<h2>Cara memakai kursus ini</h2>
+<ol>
+  <li>Buka satu modul, baca <b>Penjelasan sederhana</b> dan tonton animasinya (tombol ▶ Putar).</li>
+  <li>Kerjakan setiap <b>langkah praktik</b> di terminal. Tombol <b>Salin</b> ada di setiap blok perintah.</li>
+  <li>Bandingkan output Anda dengan kotak <b>Hasil yang diharapkan</b>. ID, tanggal, dan hash akan berbeda; itu normal.</li>
+  <li>Centang <b>Selesai</b>, kerjakan <b>Latihan mandiri</b> tanpa melihat kunci, lalu jawab <b>Kuis</b>.</li>
+  <li>Kalau error, lihat bagian <b>Kesalahan umum</b> di modul tersebut.</li>
+</ol>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/flow.js"></script>
+<script src="assets/learn.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("journey"), {
+  title: "Dari nol sampai aplikasi mini",
+  width: 960, height: 300,
+  zones: [
+    { x: 4, y: 4, w: 180, h: 292, label: "Fondasi" },
+    { x: 194, y: 4, w: 560, h: 292, label: "Batu bata layanan" },
+    { x: 764, y: 4, w: 192, h: 292, label: "Merangkai" }
+  ],
+  nodes: [
+    { id: "m0", x: 20, y: 120, w: 145, h: 60, label: "Persiapan", sub: "Docker · CLI · Floci", kind: "client", icon: "🧰" },
+    { id: "m1", x: 215, y: 40, w: 150, h: 56, label: "S3", sub: "file", kind: "store", icon: "🪣" },
+    { id: "m2", x: 400, y: 40, w: 150, h: 56, label: "SQS", sub: "antrean", kind: "svc", icon: "📨" },
+    { id: "m3", x: 585, y: 40, w: 150, h: 56, label: "SNS", sub: "siaran", kind: "svc", icon: "📣" },
+    { id: "m4", x: 215, y: 200, w: 150, h: 56, label: "DynamoDB", sub: "data", kind: "store", icon: "🗃️" },
+    { id: "m5", x: 400, y: 200, w: 150, h: 56, label: "Lambda", sub: "kode", kind: "ext", icon: "λ" },
+    { id: "m6", x: 585, y: 200, w: 150, h: 56, label: "IAM", sub: "izin", kind: "filter", icon: "🔑" },
+    { id: "m7", x: 785, y: 120, w: 150, h: 60, label: "Proyek akhir", sub: "semua digabung", kind: "zone", icon: "🏁" }
+  ],
+  steps: [
+    { from: "m0", to: "m1", tag: "mulai", title: "Modul 0 → 1", text: "Setelah Floci menyala dan CLI terhubung, Anda langsung menyimpan file pertama di <b>S3</b>." },
+    { from: "m1", to: "m2", tag: "pesan", title: "Modul 1 → 2", text: "Dari menyimpan data ke <b>mengirim pesan</b>: SQS adalah antrean yang memisahkan pengirim dan pemroses." },
+    { from: "m2", to: "m3", tag: "fan-out", title: "Modul 2 → 3", text: "<b>SNS</b> menyiarkan satu pesan ke banyak antrean SQS sekaligus." },
+    { from: "m3", to: "m4", tag: "simpan", title: "Modul 3 → 4", text: "<b>DynamoDB</b> menyimpan data terstruktur (seperti tabel) dengan akses super cepat berdasarkan key." },
+    { from: "m4", to: "m5", tag: "kode", title: "Modul 4 → 5", text: "<b>Lambda</b> menjalankan kode Python Anda saat ada event, misalnya pesan masuk SQS." },
+    { from: "m5", to: "m6", tag: "izin", title: "Modul 5 → 6", text: "<b>IAM</b> menentukan siapa boleh memanggil apa. Anda akan melihat request ditolak, lalu diizinkan." },
+    { from: "m6", to: "m7", tag: "rangkai", title: "Modul 6 → 7", text: "Semua batu bata digabung menjadi aplikasi mini pemroses pesanan.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>

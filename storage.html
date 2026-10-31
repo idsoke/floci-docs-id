@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Penyimpanan Data — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Cara Kerja › Penyimpanan Data</div>
+<h1>Penyimpanan Data (Storage)</h1>
+<p class="lead">Semua state layanan (antrean, tabel, bucket, fungsi, parameter) disimpan lewat satu abstraksi:
+<code>StorageBackend</code>. Ada empat mode yang bisa dipilih global atau per layanan.</p>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Bayangkan Anda mencatat di <b>papan tulis</b> (memori, cepat tapi hilang kalau dihapus) dan <b>buku arsip</b> (disk, awet tapi lebih lambat ditulis).</p>
+<p>🧽 <b>memory</b>: hanya papan tulis. Restart = bersih total.<br>
+📒 <b>persistent</b>: setiap kali papan berubah, langsung disalin ke buku. Aman, tapi menyalin terus.<br>
+⏱️ <b>hybrid</b>: tulis di papan dulu, lalu salin ke buku tiap beberapa detik. Cepat, tapi perubahan terakhir bisa hilang kalau listrik mati.<br>
+🧾 <b>wal</b>: setiap perubahan dicatat sebagai satu baris pendek di buku jurnal, sesekali jurnal dirangkum jadi salinan lengkap. Cepat dan awet.</p></div>
+
+<h2>Perbandingan empat mode</h2>
+<div class="table-wrap"><table>
+<tr><th>Mode</th><th>Bertahan setelah restart?</th><th>Performa tulis</th><th>Implementasi</th><th>Cocok untuk</th></tr>
+<tr><td><code>memory</code></td><td>❌ Tidak</td><td>Tercepat</td><td><code>InMemoryStorage</code> (map)</td><td>Unit test, CI</td></tr>
+<tr><td><code>persistent</code></td><td>✅ Ya</td><td>Tulis sinkron ke disk tiap perubahan (temp file + rename)</td><td><code>PersistentStorage</code></td><td>Development dengan data awet</td></tr>
+<tr><td><code>hybrid</code></td><td>✅ Ya (bisa hilang ≤ 1 interval flush)</td><td>Baca dari memori, flush async berkala</td><td><code>HybridStorage</code></td><td>Development lokal umum</td></tr>
+<tr><td><code>wal</code></td><td>✅ Ya</td><td>Append ke log biner + kompaksi berkala</td><td><code>WalStorage</code></td><td>Beban tulis tinggi</td></tr>
+</table></div>
+<p class="note"><strong>Perhatian:</strong> default di kode Java (<code>@WithDefault</code>) adalah <code>hybrid</code>, tetapi image Docker resmi
+mengirim <code>application.yml</code> dengan <code>mode: memory</code>. Jadi image standar memakai <b>memory</b> kecuali Anda men-set <code>FLOCI_STORAGE_MODE</code>.</p>
+
+<h2>Animasi: menulis data di tiap mode</h2>
+<div id="modes"></div>
+
+<h2>Animasi: WAL, kompaksi, dan pemulihan saat restart</h2>
+<div id="wal"></div>
+<h3>Format entri WAL biner</h3>
+<pre><code>PUT:          [0x01] [4-byte panjang key] [key] [4-byte panjang value] [value]
+DELETE:       [0x02] [4-byte panjang key] [key]
+BATCH:        [0x03] [4-byte panjang map] [map CBOR]
+DELETE_BATCH: [0x04] [4-byte panjang array] [array key CBOR]</code></pre>
+<p>Key dan value diserialisasi dengan Jackson <b>CBOR</b> (biner ringkas). File snapshot memakai JSON berindentasi supaya mudah diperiksa manusia.
+Kompaksi dilewati bila tidak ada perubahan sejak snapshot terakhir. Interval default: <code>FLOCI_STORAGE_WAL_COMPACTION_INTERVAL_MS=30000</code>.</p>
+
+<h2>Isolasi per akun</h2>
+<p>Setiap storage yang dibuat <code>StorageFactory</code> dibungkus <code>AccountAwareStorageBackend</code>. Pembungkus ini menambahkan prefix akun ke setiap key secara transparan:</p>
+<pre><code>Akun 111111111111 membuat antrean "orders"  →  key: 111111111111/orders
+Akun 222222222222 membuat antrean "orders"  →  key: 222222222222/orders   (terpisah total)</code></pre>
+<ul>
+  <li>Di jalur request, account ID dibaca dari <code>RequestContext</code> yang diisi <code>AccountContextFilter</code>.</li>
+  <li>Di luar request (worker async, startup) dipakai default account. Worker yang perlu akun tertentu memakai overload <code>*ForAccount</code> dengan account ID yang tersimpan di model resource.</li>
+  <li>Kompatibilitas mundur: bila key ber-prefix tidak ditemukan, key lama tanpa prefix dicoba lalu dimigrasikan saat dibaca.</li>
+</ul>
+
+<h2>Fitur storage lanjutan</h2>
+<div class="grid two">
+  <div class="card"><h3>📓 Journaled stores (mode persistent)</h3><p>Store yang sering di-append, yaitu event CloudWatch Logs (<code>cwlogs-events.json</code> + <code>.wal</code>), datapoint metrik CloudWatch, dan indeks objek S3, memakai jurnal. File JSON hanya ditulis ulang tiap interval kompaksi dan saat shutdown.</p></div>
+  <div class="card"><h3>🧩 PartitionedFileStorage</h3><p>Untuk store yang nilainya berupa map (mis. item DynamoDB per tabel). Satu file per shard, sehingga mengubah tabel kecil tidak menulis ulang tabel besar. Diatur dengan <code>FLOCI_STORAGE_SERVICES_DYNAMODB_ITEM_LAYOUT=per-table</code> dan <code>..._ITEM_SHARDS</code>.</p></div>
+  <div class="card"><h3>⚛️ putAllAtomically</h3><p>Operasi opsional untuk mengganti beberapa record terkait sekaligus. Persistent menulis snapshot kandidat lengkap dulu; WAL menulis satu frame batch sehingga replay menerapkan semua atau tidak sama sekali.</p></div>
+  <div class="card"><h3>🚑 Karantina file rusak</h3><p><code>StorageQuarantine</code> memindahkan file JSON yang gagal dibaca ke <code>.corrupt</code>, agar kehilangan data terlihat jelas, tidak diam-diam mulai kosong.</p></div>
+</div>
+
+<h2>Konfigurasi</h2>
+<div class="table-wrap"><table>
+<tr><th>Variabel</th><th>Default</th><th>Keterangan</th></tr>
+<tr><td><code>FLOCI_STORAGE_MODE</code></td><td><code>memory</code> (image)</td><td>Mode global</td></tr>
+<tr><td><code>FLOCI_STORAGE_PERSISTENT_PATH</code></td><td><code>./data</code></td><td>Folder dasar data persisten (image: <code>/app/data</code>)</td></tr>
+<tr><td><code>FLOCI_STORAGE_WAL_COMPACTION_INTERVAL_MS</code></td><td><code>30000</code></td><td>Interval kompaksi WAL</td></tr>
+<tr><td><code>FLOCI_STORAGE_SERVICES_&lt;SVC&gt;_MODE</code></td><td>ikut global</td><td>Override per layanan, mis. <code>..._SQS_MODE=wal</code></td></tr>
+<tr><td><code>FLOCI_STORAGE_SERVICES_&lt;SVC&gt;_FLUSH_INTERVAL_MS</code></td><td><code>5000</code></td><td>Interval flush mode hybrid</td></tr>
+</table></div>
+<pre><code># docker-compose.yml: data bertahan antar restart
+services:
+  floci:
+    image: floci/floci:latest
+    ports: ["4566:4566"]
+    environment:
+      FLOCI_STORAGE_MODE: hybrid
+      FLOCI_STORAGE_SERVICES_DYNAMODB_MODE: wal
+    volumes:
+      - ./floci-data:/app/data</code></pre>
+
+<h2>Aturan untuk kontributor</h2>
+<ol>
+  <li>Selalu ambil storage dari <code>StorageFactory</code>. Jangan membuat <code>InMemoryStorage</code> dkk. langsung di service.</li>
+  <li>Hormati hook lifecycle: <code>loadAll()</code> saat start, <code>flushAll()</code>/<code>shutdownAll()</code> saat berhenti.</li>
+  <li>Implementasikan <code>Resettable</code> agar layanan bisa dikosongkan.</li>
+  <li>Konfigurasi baru: <code>EmulatorConfig</code> → <code>application.yml</code> utama → <code>application.yml</code> tes → wiring di <code>StorageFactory</code> → cek lifecycle.</li>
+</ol>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/flow.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("modes"), {
+  title: "PutItem di empat mode storage",
+  width: 880, height: 420,
+  nodes: [
+    { id: "svc", x: 15, y: 180, w: 150, h: 60, label: "Service", sub: "storage.put(k, v)", kind: "svc" },
+    { id: "acct", x: 205, y: 180, w: 160, h: 60, label: "AccountAware", sub: "k → 0000…/k", kind: "filter" },
+    { id: "mem", x: 420, y: 20, w: 170, h: 56, label: "memory", sub: "ConcurrentMap", kind: "store", icon: "🧽" },
+    { id: "per", x: 420, y: 120, w: 170, h: 56, label: "persistent", sub: "map + tulis file", kind: "store", icon: "📒" },
+    { id: "hyb", x: 420, y: 240, w: 170, h: 56, label: "hybrid", sub: "map + dirty flag", kind: "store", icon: "⏱️" },
+    { id: "wal", x: 420, y: 340, w: 170, h: 56, label: "wal", sub: "map + append log", kind: "store", icon: "🧾" },
+    { id: "json", x: 670, y: 120, w: 190, h: 56, label: "store.json", sub: "temp + rename", kind: "ext", icon: "📄" },
+    { id: "timer", x: 670, y: 240, w: 190, h: 56, label: "Timer flush", sub: "tiap 5 detik", kind: "ext", icon: "⏰" },
+    { id: "log", x: 670, y: 340, w: 190, h: 56, label: "store.wal", sub: "append-only biner", kind: "ext", icon: "🧾" }
+  ],
+  steps: [
+    { from: "svc", to: "acct", tag: "put", title: "Service menulis", text: "Service tidak tahu mode apa yang dipakai. Ia hanya memanggil <code>put(key, value)</code>." },
+    { from: "acct", to: "acct", tag: "prefix", title: "Tambah prefix akun", text: "Key <code>users</code> menjadi <code>000000000000/users</code> sesuai akun request saat ini." },
+    { from: "acct", to: "mem", tag: "memory", title: "Mode memory", text: "Disimpan di map dalam memori. Selesai, secepat mungkin. Hilang saat restart.", kind: "ok" },
+    { from: "acct", to: "per", tag: "persistent", title: "Mode persistent", text: "Disimpan di map, lalu..." },
+    { from: "per", to: "json", tag: "write", title: "...seluruh file ditulis", text: "Seluruh isi store ditulis ke file sementara lalu di-<i>rename</i> (atomik). Aman, tapi biayanya naik seiring ukuran store.", kind: "ok" },
+    { from: "acct", to: "hyb", tag: "hybrid", title: "Mode hybrid", text: "Disimpan di map dan ditandai 'kotor'. Request langsung selesai tanpa menunggu disk." },
+    { from: "hyb", to: "timer", tag: "nanti", title: "Flush berkala", text: "Timer (default 5 detik) menulis store yang kotor ke disk. Perubahan dalam jendela ini bisa hilang jika proses mati mendadak." },
+    { from: "acct", to: "wal", tag: "wal", title: "Mode WAL", text: "Disimpan di map, lalu..." },
+    { from: "wal", to: "log", tag: "0x01 PUT", title: "...satu entri di-append", text: "Hanya perubahan ini yang ditambahkan di ujung log biner. Biaya kecil dan konstan, tidak tergantung ukuran store.", kind: "ok" }
+  ]
+});
+FlowDiagram.mount(document.getElementById("wal"), {
+  title: "Siklus hidup WAL",
+  width: 860, height: 300,
+  nodes: [
+    { id: "w", x: 20, y: 30, w: 150, h: 56, label: "Tulis", sub: "PUT / DELETE", kind: "svc" },
+    { id: "m", x: 240, y: 30, w: 160, h: 56, label: "Map memori", kind: "store" },
+    { id: "log", x: 470, y: 30, w: 160, h: 56, label: "store.wal", sub: "makin panjang", kind: "ext" },
+    { id: "comp", x: 470, y: 150, w: 160, h: 56, label: "Kompaksi", sub: "tiap 30 detik", kind: "filter", icon: "🗜️" },
+    { id: "snap", x: 680, y: 150, w: 160, h: 56, label: "snapshot.json", kind: "ext", icon: "📄" },
+    { id: "boot", x: 240, y: 230, w: 160, h: 56, label: "Restart", sub: "loadAll()", kind: "client", icon: "🔄" }
+  ],
+  steps: [
+    { from: "w", to: "m", tag: "put", title: "Perubahan masuk", text: "Setiap perubahan diterapkan ke map memori (sumber baca yang cepat)." },
+    { from: "m", to: "log", tag: "append", title: "Dicatat di log", text: "Perubahan yang sama ditambahkan ke ujung <code>store.wal</code>." },
+    { from: "log", to: "comp", tag: "timer", title: "Waktunya kompaksi", text: "Jika ada perubahan sejak snapshot terakhir, kompaksi berjalan." },
+    { from: "comp", to: "snap", tag: "snapshot", title: "Tulis snapshot penuh", text: "Isi map ditulis sebagai JSON lengkap." },
+    { from: "comp", to: "log", tag: "truncate", title: "Log dikosongkan", text: "Setelah snapshot aman, log dipotong. Ukurannya kembali kecil." },
+    { from: "snap", to: "boot", tag: "1. muat", title: "Saat restart: muat snapshot", text: "<code>StorageFactory.loadAll()</code> membaca snapshot terakhir lebih dulu." },
+    { from: "log", to: "boot", tag: "2. replay", title: "Lalu putar ulang log", text: "Entri setelah snapshot diputar ulang. Replay berhenti di frame pertama yang terpotong (mis. akibat crash), jadi batch tidak pernah setengah diterapkan." },
+    { from: "boot", to: "m", tag: "pulih", title: "State pulih", text: "Map memori kembali persis seperti sebelum berhenti.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>

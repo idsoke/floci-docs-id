@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modul 3 SNS — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-module="3">
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Belajar AWS dari Nol › Modul 3</div>
+<h1>📣 Modul 3 · SNS: Siaran ke Banyak Penerima</h1>
+<div class="learn-meta"><span>⏱ 45–60 menit</span><span>📶 Pemula</span><span>🧩 Amazon SNS (Simple Notification Service)</span></div>
+<div class="mod-progress"><div class="progress"><div></div></div><b></b></div>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>SQS seperti <b>surat ke satu orang</b>. SNS seperti <b>grup broadcast WhatsApp</b>: Anda mengirim satu pesan ke grup
+(<b>topic</b>), dan semua anggota (<b>subscriber</b>) menerimanya sekaligus. Anggota bisa berupa antrean SQS, fungsi Lambda,
+alamat HTTP, atau email.</p>
+<p>Pola "satu kirim, banyak terima" ini disebut <b>fan-out</b>. Contohnya: saat ada pesanan baru, dapur, bagian email,
+dan bagian laporan semuanya perlu tahu.</p></div>
+
+<h2>Tujuan modul</h2>
+<ul class="goals">
+  <li>Membuat topic dan berlangganan (subscribe) dengan antrean SQS.</li>
+  <li>Melihat fan-out: satu publish sampai ke dua antrean.</li>
+  <li>Memahami "amplop" SNS dan opsi <i>raw message delivery</i>.</li>
+  <li>Memakai <b>filter policy</b> agar subscriber hanya menerima pesan yang relevan.</li>
+</ul>
+
+<h2>Konsep kunci</h2>
+<div class="table-wrap"><table>
+<tr><th>Istilah</th><th>Arti</th></tr>
+<tr><td><b>Topic</b></td><td>Saluran siaran. Diidentifikasi dengan ARN: <code>arn:aws:sns:us-east-1:000000000000:pesanan-baru</code></td></tr>
+<tr><td><b>Subscription</b></td><td>Pendaftaran satu penerima ke topic, dengan protokol (<code>sqs</code>, <code>lambda</code>, <code>http</code>, <code>email</code>, …)</td></tr>
+<tr><td><b>Publish</b></td><td>Mengirim pesan ke topic</td></tr>
+<tr><td><b>Message attributes</b></td><td>Label tambahan di luar isi pesan, mis. <code>tipe=vip</code></td></tr>
+<tr><td><b>Filter policy</b></td><td>Aturan di subscription: "kirim ke saya hanya jika atribut cocok"</td></tr>
+<tr><td><b>SNS vs SQS</b></td><td>SNS mendorong (push) ke banyak penerima, tidak menyimpan. SQS menyimpan sampai ada yang mengambil (pull).</td></tr>
+</table></div>
+
+<h2>Animasi: fan-out dengan filter</h2>
+<div id="anim"></div>
+
+<h2>Langkah praktik</h2>
+
+<div class="step" data-id="topic"><div class="step-head"><h3>Buat topic</h3></div>
+<pre><code>T=$(aws sns create-topic --name pesanan-baru --query TopicArn --output text)
+echo $T
+aws sns list-topics</code></pre>
+<div class="out"><pre><code>arn:aws:sns:us-east-1:000000000000:pesanan-baru
+{
+    "Topics": [
+        { "TopicArn": "arn:aws:sns:us-east-1:000000000000:pesanan-baru" }
+    ]
+}</code></pre></div>
+</div>
+
+<div class="step" data-id="queues"><div class="step-head"><h3>Siapkan dua antrean penerima</h3></div>
+<pre><code>B=http://localhost:4566/000000000000
+for n in dapur email; do aws sqs create-queue --queue-name $n &gt;/dev/null; done
+
+ARN_DAPUR=$(aws sqs get-queue-attributes --queue-url $B/dapur --attribute-names QueueArn --query Attributes.QueueArn --output text)
+ARN_EMAIL=$(aws sqs get-queue-attributes --queue-url $B/email --attribute-names QueueArn --query Attributes.QueueArn --output text)
+echo $ARN_DAPUR $ARN_EMAIL</code></pre>
+<div class="out"><pre><code>arn:aws:sqs:us-east-1:000000000000:dapur arn:aws:sqs:us-east-1:000000000000:email</code></pre></div>
+</div>
+
+<div class="step" data-id="subscribe"><div class="step-head"><h3>Subscribe keduanya ke topic</h3></div>
+<pre><code>aws sns subscribe --topic-arn $T --protocol sqs --notification-endpoint $ARN_DAPUR
+aws sns subscribe --topic-arn $T --protocol sqs --notification-endpoint $ARN_EMAIL
+aws sns list-subscriptions-by-topic --topic-arn $T --query 'Subscriptions[].Endpoint'</code></pre>
+<div class="out"><pre><code>{
+    "SubscriptionArn": "arn:aws:sns:us-east-1:000000000000:pesanan-baru:4b1e…"
+}
+...
+[
+    "arn:aws:sqs:us-east-1:000000000000:dapur",
+    "arn:aws:sqs:us-east-1:000000000000:email"
+]</code></pre></div>
+<div class="note"><strong>Di AWS asli</strong> antrean juga harus punya <i>queue policy</i> yang mengizinkan topic SNS mengirim ke sana.
+Floci tidak memeriksa policy itu, jadi langkah tersebut dilewati di sini.</div>
+</div>
+
+<div class="step" data-id="publish"><div class="step-head"><h3>Publish dan lihat fan-out</h3></div>
+<pre><code>aws sns publish --topic-arn $T --message '{"id": 7, "menu": "rendang"}'
+
+aws sqs receive-message --queue-url $B/dapur --query 'Messages[0].Body' --output text
+aws sqs receive-message --queue-url $B/email --query 'Messages[0].Body' --output text</code></pre>
+<div class="out"><pre><code>{ "MessageId": "…" }
+{"Type":"Notification","MessageId":"…","TopicArn":"arn:aws:sns:us-east-1:000000000000:pesanan-baru","Message":"{\"id\": 7, \"menu\": \"rendang\"}","Timestamp":"…",…}
+{"Type":"Notification","MessageId":"…","TopicArn":"arn:aws:sns:us-east-1:000000000000:pesanan-baru","Message":"{\"id\": 7, \"menu\": \"rendang\"}","Timestamp":"…",…}</code></pre></div>
+<p>Satu publish, dua antrean menerima. Perhatikan pesan asli Anda <b>dibungkus amplop</b> JSON SNS di field <code>Message</code>.</p>
+</div>
+
+<div class="step" data-id="raw"><div class="step-head"><h3>Raw message delivery (tanpa amplop)</h3></div>
+<pre><code>SUB_DAPUR=$(aws sns list-subscriptions-by-topic --topic-arn $T \
+  --query "Subscriptions[?Endpoint=='$ARN_DAPUR'].SubscriptionArn" --output text)
+aws sns set-subscription-attributes --subscription-arn $SUB_DAPUR \
+  --attribute-name RawMessageDelivery --attribute-value true
+
+aws sns publish --topic-arn $T --message '{"id": 8, "menu": "gado-gado"}' &gt;/dev/null
+aws sqs receive-message --queue-url $B/dapur --query 'Messages[].Body' --output text</code></pre>
+<div class="out"><pre><code>{"id": 8, "menu": "gado-gado"}</code></pre></div>
+<p>Sekarang antrean <code>dapur</code> menerima isi pesan apa adanya. Ini lebih mudah diproses oleh konsumen.
+(Antrean juga masih berisi pesan dari langkah sebelumnya jika belum dihapus.)</p>
+</div>
+
+<div class="step" data-id="filter"><div class="step-head"><h3>Filter policy: hanya pesanan VIP</h3></div>
+<div data-tabs>
+<div class="tabs"><button class="on">AWS CLI</button><button>Python (boto3)</button></div>
+<div class="tab-panel on"><pre><code>aws sqs create-queue --queue-name vip &gt;/dev/null
+ARN_VIP=$(aws sqs get-queue-attributes --queue-url $B/vip --attribute-names QueueArn --query Attributes.QueueArn --output text)
+
+aws sns subscribe --topic-arn $T --protocol sqs --notification-endpoint $ARN_VIP \
+  --attributes '{"FilterPolicy": "{\"tipe\": [\"vip\"]}", "RawMessageDelivery": "true"}'
+
+aws sns publish --topic-arn $T --message "pesanan biasa" \
+  --message-attributes '{"tipe": {"DataType": "String", "StringValue": "biasa"}}'
+aws sns publish --topic-arn $T --message "pesanan VIP!" \
+  --message-attributes '{"tipe": {"DataType": "String", "StringValue": "vip"}}'
+
+aws sqs receive-message --queue-url $B/vip --max-number-of-messages 10 --query 'Messages[].Body'</code></pre></div>
+<div class="tab-panel"><pre><code>import boto3, json
+sns, sqs = boto3.client("sns"), boto3.client("sqs")
+topic = sns.create_topic(Name="pesanan-baru")["TopicArn"]   # idempoten: mengembalikan ARN yang sama
+q = sqs.create_queue(QueueName="vip")["QueueUrl"]
+arn = sqs.get_queue_attributes(QueueUrl=q, AttributeNames=["QueueArn"])["Attributes"]["QueueArn"]
+
+sns.subscribe(TopicArn=topic, Protocol="sqs", Endpoint=arn, Attributes={
+    "FilterPolicy": json.dumps({"tipe": ["vip"]}), "RawMessageDelivery": "true"})
+
+for tipe in ["biasa", "vip"]:
+    sns.publish(TopicArn=topic, Message=f"pesanan {tipe}",
+                MessageAttributes={"tipe": {"DataType": "String", "StringValue": tipe}})
+
+r = sqs.receive_message(QueueUrl=q, MaxNumberOfMessages=10, WaitTimeSeconds=2)
+print([m["Body"] for m in r.get("Messages", [])])</code></pre></div>
+</div>
+<div class="out"><pre><code>[
+    "pesanan VIP!"
+]</code></pre></div>
+<p>Antrean <code>vip</code> hanya menerima pesan bertipe vip. Antrean <code>dapur</code> dan <code>email</code> (tanpa filter) tetap menerima keduanya.</p>
+</div>
+
+<h2>Kesalahan umum</h2>
+<div class="table-wrap"><table>
+<tr><th>Gejala</th><th>Penyebab</th></tr>
+<tr><td><code>NotFound: Topic does not exist</code></td><td>ARN topic salah, region berbeda, atau Floci sudah di-reset</td></tr>
+<tr><td>Antrean tidak menerima apa pun</td><td>Endpoint subscription salah (harus <b>ARN antrean</b>, bukan URL), atau filter policy tidak cocok</td></tr>
+<tr><td><code>InvalidParameter … FilterPolicy</code></td><td>JSON filter policy tidak valid. Ingat: ini string JSON di dalam JSON.</td></tr>
+<tr><td>Konsumen gagal mem-parsing pesan</td><td>Lupa bahwa pesan dibungkus amplop. Ambil field <code>Message</code>, atau aktifkan RawMessageDelivery.</td></tr>
+</table></div>
+
+<h2>Latihan mandiri</h2>
+<div class="exercise"><b>Latihan 1.</b> Buat topic <code>cuaca</code> dengan tiga antrean penerima: <code>jakarta</code>, <code>bandung</code>, <code>semua</code>.
+Pasang filter agar <code>jakarta</code> hanya menerima <code>kota=jakarta</code>, <code>bandung</code> hanya <code>kota=bandung</code>, dan <code>semua</code> menerima semuanya.
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<pre><code>T2=$(aws sns create-topic --name cuaca --query TopicArn --output text)
+for k in jakarta bandung semua; do
+  aws sqs create-queue --queue-name $k &gt;/dev/null
+  A=$(aws sqs get-queue-attributes --queue-url $B/$k --attribute-names QueueArn --query Attributes.QueueArn --output text)
+  if [ $k = semua ]; then ATTR='{"RawMessageDelivery":"true"}'
+  else ATTR="{\"RawMessageDelivery\":\"true\",\"FilterPolicy\":\"{\\\"kota\\\":[\\\"$k\\\"]}\"}"; fi
+  aws sns subscribe --topic-arn $T2 --protocol sqs --notification-endpoint $A --attributes "$ATTR" &gt;/dev/null
+done
+for k in jakarta bandung; do
+  aws sns publish --topic-arn $T2 --message "hujan di $k" \
+    --message-attributes "{\"kota\":{\"DataType\":\"String\",\"StringValue\":\"$k\"}}" &gt;/dev/null
+done
+for k in jakarta bandung semua; do echo "== $k"; aws sqs receive-message --queue-url $B/$k --max-number-of-messages 10 --query 'Messages[].Body' --output text; done</code></pre>
+<p><code>jakarta</code> dan <code>bandung</code> masing-masing menerima satu pesan; <code>semua</code> menerima dua.</p></details></div>
+<div class="exercise"><b>Latihan 2.</b> Filter policy bisa memakai lebih dari satu nilai: <code>{"tipe": ["vip", "gold"]}</code>. Apa artinya?
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<p>Nilai dalam satu array berarti <b>ATAU</b>: pesan diterima jika <code>tipe</code> bernilai <code>vip</code> atau <code>gold</code>.
+Beberapa key yang berbeda (mis. <code>tipe</code> dan <code>kota</code>) berarti <b>DAN</b>: semuanya harus cocok.</p></details></div>
+
+<h2>Kuis</h2>
+<div class="quiz" data-answer="0"><div class="q">1. Satu event harus diproses oleh tiga sistem berbeda secara terpisah. Pola terbaik?</div>
+<button class="opt">SNS topic → tiga antrean SQS (fan-out)</button>
+<button class="opt">Satu antrean SQS dengan tiga konsumen</button>
+<button class="opt">Tiga bucket S3</button>
+<div class="why">Satu antrean dengan tiga konsumen berarti setiap pesan hanya diproses oleh <b>salah satu</b> konsumen, bukan ketiganya.</div></div>
+<div class="quiz" data-answer="2"><div class="q">2. Endpoint saat subscribe antrean SQS ke SNS adalah…</div>
+<button class="opt">Queue URL</button>
+<button class="opt">Nama antrean</button>
+<button class="opt">ARN antrean</button>
+<div class="why">SNS mengidentifikasi tujuan SQS dengan ARN.</div></div>
+<div class="quiz" data-answer="1"><div class="q">3. Kalau tidak ada subscriber saat publish, pesannya…</div>
+<button class="opt">Disimpan sampai ada subscriber</button>
+<button class="opt">Hilang. SNS tidak menyimpan pesan.</button>
+<button class="opt">Dipindah ke DLQ otomatis</button>
+<div class="why">SNS hanya meneruskan. Gabungkan dengan SQS bila pesan harus disimpan.</div></div>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/flow.js"></script>
+<script src="assets/learn.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("anim"), {
+  title: "Publish → topic → tiga antrean",
+  width: 920, height: 320,
+  nodes: [
+    { id: "app", x: 20, y: 130, w: 160, h: 60, label: "Aplikasi", sub: "sns publish", kind: "client", icon: "🛒" },
+    { id: "topic", x: 260, y: 125, w: 180, h: 70, label: "Topic", sub: "pesanan-baru", kind: "svc", icon: "📣" },
+    { id: "f", x: 500, y: 230, w: 150, h: 56, label: "Filter policy", sub: "tipe = vip?", kind: "filter", icon: "🧪" },
+    { id: "q1", x: 720, y: 20, w: 180, h: 56, label: "Antrean dapur", sub: "raw", kind: "store", icon: "📨" },
+    { id: "q2", x: 720, y: 130, w: 180, h: 56, label: "Antrean email", sub: "amplop SNS", kind: "store", icon: "📨" },
+    { id: "q3", x: 720, y: 235, w: 180, h: 56, label: "Antrean vip", kind: "store", icon: "⭐" }
+  ],
+  steps: [
+    { from: "app", to: "topic", tag: "Publish tipe=biasa", title: "Pesan dipublikasikan", text: "Aplikasi mengirim <b>satu</b> pesan ke topic dengan atribut <code>tipe=biasa</code>." },
+    { from: "topic", to: "q1", tag: "copy 1", title: "Salinan ke dapur", text: "Subscription dapur tidak punya filter, jadi menerima pesan. Karena RawMessageDelivery aktif, isinya dikirim apa adanya.", kind: "ok" },
+    { from: "topic", to: "q2", tag: "copy 2", title: "Salinan ke email", text: "Subscription email juga menerima pesan, dibungkus amplop JSON SNS (<code>Type</code>, <code>TopicArn</code>, <code>Message</code>…).", kind: "ok" },
+    { from: "topic", to: "f", tag: "cek", title: "Periksa filter vip", text: "Subscription vip punya filter <code>{\"tipe\": [\"vip\"]}</code>. Atribut pesan adalah <code>biasa</code>." },
+    { from: "f", to: "topic", tag: "ditolak", title: "Tidak cocok", text: "Pesan <b>tidak dikirim</b> ke antrean vip.", kind: "err" },
+    { from: "app", to: "topic", tag: "Publish tipe=vip", title: "Pesan VIP", text: "Pesan kedua dengan <code>tipe=vip</code>. Dapur dan email menerimanya seperti sebelumnya…" },
+    { from: "f", to: "q3", tag: "cocok ✔", title: "Lolos filter", text: "…dan kali ini filter cocok, sehingga antrean vip juga menerima salinan.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>

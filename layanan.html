@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Katalog Layanan — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .bars { display: grid; gap: 7px; margin: 10px 0 4px; }
+  .bar { display: grid; grid-template-columns: 210px 1fr 40px; gap: 10px; align-items: center; font-size: .88rem; cursor: pointer; }
+  .bar .track { background: var(--panel-2); border-radius: 5px; height: 16px; overflow: hidden; }
+  .bar .fill { height: 100%; background: var(--accent); border-radius: 5px; width: 0; transition: width 1s cubic-bezier(.2,.8,.2,1); }
+  .bar:hover .fill { background: var(--violet); }
+  .bar b { text-align: right; font-variant-numeric: tabular-nums; }
+  td.ops { text-align: right; font-variant-numeric: tabular-nums; }
+  td.feat { color: var(--muted); font-size: .85rem; min-width: 240px; }
+  #tb td:nth-child(5) { max-width: 170px; font-size: .88rem; }
+  #tb td:nth-child(2) { font-size: .88rem; }
+  @media (max-width: 640px) { .bar { grid-template-columns: 120px 1fr 32px; } td.feat { display: none; } }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Referensi › Katalog Layanan</div>
+<h1>Katalog Layanan</h1>
+<p class="lead">Semua layanan AWS yang diemulasikan Floci, beserta protokol, jumlah operasi, dan cara kerjanya.
+Data diambil dari <code>docs/services/index.md</code> (tabel resmi, jumlah operasi persis) dan tabel fitur di <code>README.md</code>.</p>
+
+<div class="simple"><div class="tag">Cara membaca</div>
+<p><b>Protokol</b> = "bahasa" yang dipakai SDK untuk bicara ke layanan itu (lihat <a href="protokol.html">Protokol AWS</a>).
+<b>Operasi</b> = jumlah perintah API yang didukung. <b>Cara kerja</b>: "Di dalam proses" berarti diemulasikan dengan kode Java di Floci;
+"Container Docker" berarti Floci menjalankan perangkat lunak asli di container.</p></div>
+
+<div class="stats" id="stats"></div>
+
+<div class="grid two">
+  <div class="card"><h3>Layanan per kategori</h3><p>Klik batang untuk memfilter tabel.</p><div class="bars" id="bars-cat"></div></div>
+  <div class="card"><h3>Layanan per protokol utama</h3><p>Klik batang untuk memfilter tabel.</p><div class="bars" id="bars-proto"></div></div>
+</div>
+
+<h2>Tabel layanan</h2>
+<div class="toolbar">
+  <input id="q" type="search" placeholder="Cari layanan atau fitur… (mis. redis, lambda, kafka)">
+  <select id="fc"><option value="">Semua kategori</option></select>
+  <select id="fp"><option value="">Semua protokol</option></select>
+  <span class="count" id="count"></span>
+</div>
+<div class="table-wrap"><table>
+  <thead><tr><th>Layanan</th><th>Kategori</th><th>Protokol</th><th style="text-align:right">Operasi</th><th>Cara kerja</th><th>Fitur utama (README)</th></tr></thead>
+  <tbody id="tb"></tbody>
+</table></div>
+
+<h2>Layanan yang memakai container sungguhan</h2>
+<p>Layanan ini memerlukan akses ke Docker (<code>/var/run/docker.sock</code>):</p>
+<div class="table-wrap"><table>
+<tr><th>Layanan</th><th>Perangkat lunak di container</th></tr>
+<tr><td>Lambda</td><td>Image runtime resmi AWS Lambda (Python, Node.js, Java, Go, .NET, Ruby, provided)</td></tr>
+<tr><td>RDS / Aurora DSQL</td><td>PostgreSQL, MySQL, MariaDB</td></tr>
+<tr><td>ElastiCache / MemoryDB</td><td>Redis / Valkey, Memcached</td></tr>
+<tr><td>DocumentDB</td><td>MongoDB</td></tr>
+<tr><td>Neptune</td><td>TinkerPop Gremlin Server atau Neo4j</td></tr>
+<tr><td>MSK</td><td>Redpanda (kompatibel Kafka)</td></tr>
+<tr><td>Amazon MQ</td><td>RabbitMQ</td></tr>
+<tr><td>OpenSearch</td><td>OpenSearch</td></tr>
+<tr><td>EKS</td><td>k3s</td></tr>
+<tr><td>ECS / EC2</td><td>Container task Anda / container sebagai instance</td></tr>
+<tr><td>Managed Flink</td><td>Kluster Apache Flink</td></tr>
+<tr><td>Timestream for InfluxDB</td><td>InfluxDB 2.7</td></tr>
+<tr><td>Athena</td><td>Sidecar DuckDB</td></tr>
+<tr><td>ECR</td><td>Registry container</td></tr>
+</table></div>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/services.js"></script>
+<script>
+(function () {
+  const S = window.FLOCI_SERVICES;
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const mainProto = (p) => {
+    if (/^Query/.test(p)) return "Query";
+    if (/^JSON 1\.1/.test(p)) return "JSON 1.1";
+    if (/^JSON 1\.0/.test(p)) return "JSON 1.0";
+    if (/^REST XML/.test(p)) return "REST XML";
+    if (/^REST JSON/.test(p)) return "REST JSON";
+    return "Lainnya";
+  };
+  const pillCls = (p) => ({ "Query": "p-query", "JSON 1.1": "p-json", "JSON 1.0": "p-json", "REST JSON": "p-rest", "REST XML": "p-xml" }[mainProto(p)] || "p-other");
+  const totalOps = S.reduce((a, s) => a + (parseInt(s.o, 10) || 0), 0);
+  const docker = S.filter((s) => /Container Docker/.test(s.h)).length;
+  document.getElementById("stats").innerHTML = `
+    <div class="stat"><b>${S.length}</b><span>baris layanan</span></div>
+    <div class="stat"><b>${totalOps.toLocaleString("id-ID")}</b><span>total operasi (perkiraan dari tabel)</span></div>
+    <div class="stat"><b>${docker}+</b><span>layanan berbasis container</span></div>
+    <div class="stat"><b>${new Set(S.map((s) => s.c)).size}</b><span>kategori</span></div>`;
+
+  function bars(id, key, onPick) {
+    const cnt = {};
+    S.forEach((s) => { const k = key(s); cnt[k] = (cnt[k] || 0) + 1; });
+    const rows = Object.entries(cnt).sort((a, b) => b[1] - a[1]);
+    const max = rows[0][1];
+    const box = document.getElementById(id);
+    box.innerHTML = rows.map(([k, v]) => `<div class="bar" data-k="${esc(k)}"><span>${esc(k)}</span><div class="track"><div class="fill" data-w="${v / max * 100}"></div></div><b>${v}</b></div>`).join("");
+    box.querySelectorAll(".bar").forEach((b) => b.addEventListener("click", () => onPick(b.dataset.k)));
+    return rows.map((r) => r[0]);
+  }
+  const fc = document.getElementById("fc"), fp = document.getElementById("fp"), q = document.getElementById("q");
+  bars("bars-cat", (s) => s.c, (k) => { fc.value = k; render(); document.getElementById("tb").scrollIntoView({ behavior: "smooth", block: "start" }); })
+    .sort().forEach((c) => fc.insertAdjacentHTML("beforeend", `<option>${esc(c)}</option>`));
+  bars("bars-proto", (s) => mainProto(s.p), (k) => { fp.value = k; render(); document.getElementById("tb").scrollIntoView({ behavior: "smooth", block: "start" }); })
+    .forEach((p) => fp.insertAdjacentHTML("beforeend", `<option>${esc(p)}</option>`));
+
+  // animasikan batang saat terlihat
+  const io = new IntersectionObserver((es) => es.forEach((e) => {
+    if (e.isIntersecting) { e.target.querySelectorAll(".fill").forEach((f) => f.style.width = f.dataset.w + "%"); io.unobserve(e.target); }
+  }), { threshold: .3 });
+  document.querySelectorAll(".bars").forEach((b) => io.observe(b));
+
+  function render() {
+    const t = q.value.trim().toLowerCase();
+    const rows = S.filter((s) => (!fc.value || s.c === fc.value) && (!fp.value || mainProto(s.p) === fp.value) &&
+      (!t || (s.n + " " + s.f + " " + s.h + " " + s.p).toLowerCase().includes(t)));
+    document.getElementById("tb").innerHTML = rows.map((s) => `<tr>
+      <td><b>${esc(s.n)}</b></td><td>${esc(s.c)}</td>
+      <td><span class="pill ${pillCls(s.p)}">${esc(s.p)}</span></td>
+      <td class="ops">${esc(s.o)}</td><td>${esc(s.h || "—")}</td><td class="feat">${esc(s.f || "")}</td></tr>`).join("") ||
+      `<tr><td colspan="6" style="text-align:center;color:var(--muted)">Tidak ada layanan yang cocok.</td></tr>`;
+    document.getElementById("count").textContent = `${rows.length} dari ${S.length} layanan`;
+  }
+  [q, fc, fp].forEach((e) => e.addEventListener("input", render));
+  render();
+})();
+</script>
+</body>
+</html>

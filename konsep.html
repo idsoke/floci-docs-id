@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Konsep Dasar — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Mulai › Konsep Dasar</div>
+<h1>Konsep Dasar</h1>
+<p class="lead">Halaman ini menjelaskan ide di balik Floci tanpa istilah teknis yang berat. Cocok dibaca pertama kali.</p>
+
+<h2>1. Masalah yang diselesaikan</h2>
+<p>Aplikasi modern sering bergantung pada layanan AWS: file di S3, antrean pesan di SQS, database di DynamoDB, fungsi di Lambda.
+Saat pengembangan dan pengujian, memakai AWS asli punya beberapa masalah:</p>
+<div class="grid two">
+  <div class="card"><div class="icon">💸</div><h3>Biaya</h3><p>Setiap tes yang membuat bucket, tabel, atau memanggil Lambda bisa dikenai biaya. Kalau CI berjalan ratusan kali sehari, biayanya menumpuk.</p></div>
+  <div class="card"><div class="icon">🐢</div><h3>Lambat & butuh internet</h3><p>Setiap panggilan harus pergi ke server AWS dan kembali. Tanpa internet, tidak bisa kerja sama sekali.</p></div>
+  <div class="card"><div class="icon">🧹</div><h3>Sisa sampah</h3><p>Tes yang gagal di tengah jalan bisa meninggalkan resource yang lupa dihapus di akun.</p></div>
+  <div class="card"><div class="icon">🔑</div><h3>Kredensial & izin</h3><p>Developer baru perlu akun, akses, dan kunci. Kunci sungguhan bisa bocor.</p></div>
+</div>
+<div class="simple"><div class="tag">Solusinya</div>
+<p>Floci menjalankan tiruan AWS di komputer Anda. Aplikasi cukup diarahkan ke <code>http://localhost:4566</code>,
+dan semua panggilan dilayani secara lokal: <b>gratis, cepat, offline, dan bisa dibuang kapan saja</b>.</p></div>
+
+<h2>2. Apa itu "emulator"?</h2>
+<p>Emulator adalah program yang <b>berperilaku seperti</b> sistem lain. Floci tidak menyalin kode AWS (kode AWS tidak terbuka).
+Floci menulis ulang perilakunya berdasarkan <b>spesifikasi publik</b>: model layanan yang dipakai AWS SDK, dokumentasi API, dan pengamatan perilaku AWS asli.</p>
+
+<div class="simple"><div class="tag">Analogi: penerjemah dan formulir</div>
+<p>Setiap layanan AWS punya "bahasa" (protokol) dan "formulir" (bentuk request/response) sendiri.
+SQS bicara dengan formulir <code>Action=SendMessage&amp;...</code> dan dibalas XML. DynamoDB bicara JSON dengan header <code>X-Amz-Target</code>.
+S3 memakai alamat URL seperti <code>/nama-bucket/nama-file</code>.</p>
+<p>Floci adalah petugas loket yang <b>fasih semua bahasa itu</b>. Ia membaca formulir apa pun yang Anda serahkan,
+mengerjakan permintaannya, lalu membalas dengan formulir yang persis sama seperti balasan AWS.</p></div>
+
+<h2>3. Prinsip terpenting: kompatibilitas wire protocol</h2>
+<p>"Wire protocol" artinya bentuk data yang benar-benar lewat di kabel jaringan: header HTTP, URL, isi JSON/XML, kode error.
+Floci <b>tidak</b> membuat API versi sendiri yang lebih praktis. Ia meniru bentuk aslinya byte demi byte sejauh mungkin.
+Karena itu SDK resmi (Java, Python boto3, Go, JavaScript, .NET), AWS CLI, Terraform, OpenTofu, dan CDK bisa langsung dipakai.</p>
+<p>Dari <code>AGENTS.md</code>, urutan prioritas proyek ini adalah:</p>
+<ol class="steps">
+  <li><b>Jaga kompatibilitas protokol AWS.</b> Jangan membuat bentuk endpoint sendiri.</li>
+  <li><b>Samakan perilaku dengan AWS SDK dan CLI.</b> Termasuk pesan error dan kode HTTP.</li>
+  <li><b>Pakai ulang pola Floci yang sudah ada.</b> Salin pola layanan lain sebelum membuat pola baru.</li>
+  <li><b>Utamakan kebenaran daripada kemudahan.</b></li>
+  <li><b>Perubahan sempit dan bisa dites.</b></li>
+</ol>
+
+<h2>4. Istilah yang akan sering muncul</h2>
+<div class="table-wrap"><table>
+<tr><th>Istilah</th><th>Arti sederhana</th><th>Contoh di Floci</th></tr>
+<tr><td><b>Layanan (service)</b></td><td>Satu produk AWS</td><td>S3, SQS, Lambda, IAM</td></tr>
+<tr><td><b>Operasi / Action</b></td><td>Satu perintah yang bisa diminta ke layanan</td><td><code>CreateBucket</code>, <code>SendMessage</code></td></tr>
+<tr><td><b>Endpoint</b></td><td>Alamat yang dituju request</td><td><code>http://localhost:4566</code></td></tr>
+<tr><td><b>Region</b></td><td>Lokasi data center AWS</td><td><code>us-east-1</code>, <code>ap-southeast-3</code> (Jakarta)</td></tr>
+<tr><td><b>Account ID</b></td><td>Nomor akun AWS 12 digit</td><td>Default <code>000000000000</code></td></tr>
+<tr><td><b>ARN</b></td><td>"Alamat lengkap" sebuah resource</td><td><code>arn:aws:sqs:us-east-1:000000000000:orders</code></td></tr>
+<tr><td><b>SigV4</b></td><td>Tanda tangan digital di setiap request</td><td>Header <code>Authorization: AWS4-HMAC-SHA256 ...</code></td></tr>
+<tr><td><b>Control plane</b></td><td>Perintah mengatur resource (buat, ubah, hapus)</td><td><code>CreateTable</code></td></tr>
+<tr><td><b>Data plane</b></td><td>Perintah memakai resource</td><td><code>PutItem</code>, koneksi Redis ke ElastiCache</td></tr>
+</table></div>
+<p>Daftar lengkap ada di <a href="glosarium.html">Glosarium</a>.</p>
+
+<h2>5. Tiga jenis "kedalaman" emulasi</h2>
+<p>Tidak semua layanan diemulasikan dengan cara yang sama. Secara garis besar ada tiga tingkat:</p>
+<div id="depth-flow"></div>
+<div class="grid">
+  <div class="card"><div class="icon">📝</div><h3>Murni Java (in-process)</h3><p>Logika ditulis ulang di Java dan state disimpan di Floci. Contoh: SQS, SNS, DynamoDB, IAM, SSM, KMS, Secrets Manager, Step Functions.</p></div>
+  <div class="card"><div class="icon">🐳</div><h3>Container sungguhan</h3><p>Floci menyalakan container Docker berisi perangkat lunak asli. Contoh: Lambda (runtime AWS), RDS (PostgreSQL/MySQL), ElastiCache (Redis), EKS (k3s), OpenSearch, Amazon MQ (RabbitMQ).</p></div>
+  <div class="card"><div class="icon">🎭</div><h3>Metadata / tiruan respons</h3><p>Beberapa layanan hanya menyimpan konfigurasi dan mengembalikan respons yang masuk akal, tanpa "mesin" sungguhan. Contoh: Pricing, Budgets, Cost Explorer, sebagian layanan AI.</p></div>
+</div>
+
+<h2>6. Floci vs LocalStack</h2>
+<p>Floci dirancang sebagai <b>pengganti langsung (drop-in replacement)</b> LocalStack Community: port sama (4566),
+jalur init hooks LocalStack (<code>/etc/localstack/init/...</code>) tetap didukung, endpoint <code>/_localstack/health</code> dan
+<code>/_localstack/init</code> juga tersedia. Bedanya, Floci tidak memerlukan auth token dan tidak membatasi fitur di balik versi berbayar.</p>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/flow.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("depth-flow"), {
+  title: "Tiga cara Floci melayani request",
+  width: 860, height: 300,
+  nodes: [
+    { id: "req", x: 20, y: 120, w: 140, h: 60, label: "Request API", sub: "dari SDK", kind: "client", icon: "📩" },
+    { id: "floci", x: 230, y: 120, w: 150, h: 60, label: "Floci", sub: "Quarkus, port 4566", kind: "ctrl", icon: "☁️" },
+    { id: "java", x: 470, y: 20, w: 180, h: 56, label: "Logika Java", sub: "SQS, DynamoDB, IAM…", kind: "svc" },
+    { id: "meta", x: 470, y: 120, w: 180, h: 56, label: "Simpan metadata", sub: "Pricing, Budgets…", kind: "svc" },
+    { id: "docker", x: 470, y: 220, w: 180, h: 56, label: "Docker daemon", sub: "via docker.sock", kind: "ext", icon: "🐳" },
+    { id: "ctr", x: 700, y: 220, w: 140, h: 56, label: "Container", sub: "Redis, Postgres, Lambda", kind: "ext" }
+  ],
+  steps: [
+    { from: "req", to: "floci", tag: "API", title: "Request masuk", text: "Semua jenis request masuk lewat pintu yang sama." },
+    { from: "floci", to: "java", tag: "SQS", title: "Tipe 1: diproses di Java", text: "Untuk SQS, Floci sendiri yang mengelola antrean, visibility timeout, dan DLQ di memori/disk." },
+    { from: "floci", to: "meta", tag: "Budgets", title: "Tipe 3: cukup metadata", text: "Untuk layanan seperti Budgets, Floci menyimpan konfigurasi dan mengembalikan respons berformat AWS." },
+    { from: "floci", to: "docker", tag: "CreateDB", title: "Tipe 2: minta Docker", text: "Untuk RDS, Floci meminta Docker daemon menyalakan container PostgreSQL atau MySQL sungguhan." },
+    { from: "docker", to: "ctr", tag: "run", title: "Container berjalan", text: "Database asli berjalan. Aplikasi Anda bisa konek lewat port proxy (mis. 7001) dengan driver JDBC biasa.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>

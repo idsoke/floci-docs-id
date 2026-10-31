@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modul 2 SQS — Floci</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-module="2">
+<div class="layout">
+<aside class="sidebar"></aside>
+<div class="main">
+<div class="topbar"><button type="button">☰ Menu</button><b>Floci Docs</b></div>
+<div class="content">
+
+<div class="crumb">Belajar AWS dari Nol › Modul 2</div>
+<h1>📨 Modul 2 · SQS: Antrean Pesan</h1>
+<div class="learn-meta"><span>⏱ 60–90 menit</span><span>📶 Pemula</span><span>🧩 Amazon SQS (Simple Queue Service)</span></div>
+<div class="mod-progress"><div class="progress"><div></div></div><b></b></div>
+
+<div class="simple"><div class="tag">Penjelasan sederhana</div>
+<p>Bayangkan <b>loket pesanan di restoran</b>. Kasir (<b>produser</b>) menulis pesanan di kertas dan menancapkannya di papan.
+Koki (<b>konsumen</b>) mengambil satu kertas, memasak, lalu membuang kertasnya. Kasir tidak perlu menunggu koki selesai,
+dan kalau koki sedang sibuk, pesanan tetap aman menunggu di papan. Papan itulah <b>antrean SQS</b>.</p>
+<p>Kalau koki pingsan saat memasak, kertasnya tidak hilang: setelah beberapa saat kertas itu kembali ke papan untuk diambil
+koki lain. Inilah <b>visibility timeout</b>, fitur terpenting SQS.</p></div>
+
+<h2>Tujuan modul</h2>
+<ul class="goals">
+  <li>Membuat antrean, mengirim, menerima, dan menghapus pesan.</li>
+  <li>Memahami siklus hidup pesan: terlihat → tak terlihat → dihapus (atau kembali lagi).</li>
+  <li>Memakai long polling agar konsumen hemat request.</li>
+  <li>Membuat Dead-Letter Queue (DLQ) untuk pesan yang terus gagal.</li>
+</ul>
+
+<h2>Konsep kunci</h2>
+<div class="table-wrap"><table>
+<tr><th>Istilah</th><th>Arti</th></tr>
+<tr><td><b>Queue URL</b></td><td>Alamat antrean, dipakai di hampir semua perintah: <code>http://localhost:4566/000000000000/pesanan</code></td></tr>
+<tr><td><b>Message body</b></td><td>Isi pesan berupa teks (sering JSON), maksimal 256 KB</td></tr>
+<tr><td><b>Receipt handle</b></td><td>"Tiket" yang Anda dapat saat menerima pesan. Dibutuhkan untuk menghapus pesan. Berubah setiap kali diterima.</td></tr>
+<tr><td><b>Visibility timeout</b></td><td>Lama pesan disembunyikan setelah diterima (default 30 detik). Jika tidak dihapus dalam waktu itu, pesan muncul lagi.</td></tr>
+<tr><td><b>Long polling</b></td><td>Konsumen menunggu hingga 20 detik sampai ada pesan, daripada bertanya terus-menerus</td></tr>
+<tr><td><b>DLQ</b></td><td>Antrean "gudang pesan bermasalah". Pesan pindah ke sini setelah diterima lebih dari <code>maxReceiveCount</code> kali tanpa dihapus.</td></tr>
+<tr><td><b>Standard vs FIFO</b></td><td>Standard: sangat cepat, urutan tidak dijamin, bisa terkirim dua kali. FIFO (<code>.fifo</code>): urutan dijamin, tepat sekali.</td></tr>
+</table></div>
+
+<h2>Animasi: siklus hidup sebuah pesan</h2>
+<div id="anim"></div>
+
+<h2>Langkah praktik</h2>
+
+<div class="step" data-id="create"><div class="step-head"><h3>Buat antrean</h3></div>
+<pre><code>aws sqs create-queue --queue-name pesanan
+aws sqs list-queues
+
+# simpan URL-nya ke variabel agar perintah berikutnya pendek
+Q=$(aws sqs get-queue-url --queue-name pesanan --query QueueUrl --output text)
+echo $Q</code></pre>
+<div class="out"><pre><code>{
+    "QueueUrl": "http://localhost:4566/000000000000/pesanan"
+}
+...
+http://localhost:4566/000000000000/pesanan</code></pre></div>
+<p>Opsi <code>--query</code> memakai bahasa <b>JMESPath</b> untuk mengambil satu nilai dari JSON, dan <code>--output text</code>
+menghilangkan tanda kutip. Kombinasi ini akan sering Anda pakai.</p>
+</div>
+
+<div class="step" data-id="send"><div class="step-head"><h3>Kirim pesan</h3></div>
+<pre><code>aws sqs send-message --queue-url $Q --message-body '{"id": 1, "menu": "nasi goreng"}'
+aws sqs send-message --queue-url $Q --message-body '{"id": 2, "menu": "soto ayam"}'
+
+aws sqs get-queue-attributes --queue-url $Q --attribute-names ApproximateNumberOfMessages</code></pre>
+<div class="out"><pre><code>{
+    "MD5OfMessageBody": "…",
+    "MessageId": "6f1c…"
+}
+...
+{
+    "Attributes": {
+        "ApproximateNumberOfMessages": "2"
+    }
+}</code></pre></div>
+</div>
+
+<div class="step" data-id="receive"><div class="step-head"><h3>Terima pesan</h3></div>
+<pre><code>aws sqs receive-message --queue-url $Q</code></pre>
+<div class="out"><pre><code>{
+    "Messages": [
+        {
+            "MessageId": "6f1c…",
+            "ReceiptHandle": "AQEB…panjang…",
+            "MD5OfBody": "…",
+            "Body": "{\"id\": 1, \"menu\": \"nasi goreng\"}"
+        }
+    ]
+}</code></pre></div>
+<p>Default-nya satu pesan per panggilan. Pakai <code>--max-number-of-messages 10</code> untuk mengambil hingga 10 sekaligus.
+Pada antrean standard, urutan pesan <b>tidak dijamin</b>.</p>
+</div>
+
+<div class="step" data-id="visibility"><div class="step-head"><h3>Eksperimen visibility timeout</h3></div>
+<p>Ini eksperimen terpenting di modul ini. Kita terima pesan dengan timeout 10 detik, <b>tanpa</b> menghapusnya.</p>
+<pre><code>aws sqs receive-message --queue-url $Q --visibility-timeout 10 --max-number-of-messages 10 \
+  --query 'Messages[].Body'
+aws sqs receive-message --queue-url $Q --query 'Messages[].Body'     # langsung lagi: kosong
+sleep 11
+aws sqs receive-message --queue-url $Q --query 'Messages[].Body'     # pesan muncul lagi!</code></pre>
+<div class="out"><pre><code>[
+    "{\"id\": 1, \"menu\": \"nasi goreng\"}",
+    "{\"id\": 2, \"menu\": \"soto ayam\"}"
+]
+null
+[
+    "{\"id\": 1, \"menu\": \"nasi goreng\"}"
+]</code></pre></div>
+<p>Pesan tidak dihapus oleh <code>receive</code>. Ia hanya <b>disembunyikan</b>. Kalau konsumen crash sebelum menghapus,
+pesan kembali ke antrean sehingga tidak ada pesanan yang hilang.</p>
+</div>
+
+<div class="step" data-id="delete"><div class="step-head"><h3>Hapus pesan setelah diproses</h3></div>
+<div data-tabs>
+<div class="tabs"><button class="on">AWS CLI</button><button>Python: konsumen lengkap</button></div>
+<div class="tab-panel on"><pre><code>RH=$(aws sqs receive-message --queue-url $Q --visibility-timeout 30 \
+      --query 'Messages[0].ReceiptHandle' --output text)
+aws sqs delete-message --queue-url $Q --receipt-handle "$RH"
+
+aws sqs purge-queue --queue-url $Q      # kosongkan semua pesan sekaligus</code></pre></div>
+<div class="tab-panel"><pre><code>import boto3, json
+sqs = boto3.client("sqs")
+q = sqs.get_queue_url(QueueName="pesanan")["QueueUrl"]
+
+for i in range(3):
+    sqs.send_message(QueueUrl=q, MessageBody=json.dumps({"id": i, "menu": f"menu-{i}"}))
+
+while True:
+    r = sqs.receive_message(QueueUrl=q, MaxNumberOfMessages=10, WaitTimeSeconds=5)
+    msgs = r.get("Messages", [])
+    if not msgs:
+        print("antrean kosong, selesai")
+        break
+    for m in msgs:
+        pesanan = json.loads(m["Body"])
+        print("memasak", pesanan["menu"])
+        sqs.delete_message(QueueUrl=q, ReceiptHandle=m["ReceiptHandle"])  # wajib!</code></pre></div>
+</div>
+<p><code>delete-message</code> tidak mencetak apa pun jika sukses. Pola baku konsumen: <b>terima → proses → hapus</b>.</p>
+</div>
+
+<div class="step" data-id="longpoll"><div class="step-head"><h3>Long polling</h3></div>
+<p>Buka <b>dua terminal</b> (keduanya dengan variabel dari Modul 0 dan <code>$Q</code>).</p>
+<pre><code># Terminal 1: menunggu hingga 20 detik
+time aws sqs receive-message --queue-url $Q --wait-time-seconds 20 --query 'Messages[].Body'
+
+# Terminal 2: kirim dalam beberapa detik
+aws sqs send-message --queue-url $Q --message-body "pesan kilat"</code></pre>
+<div class="out"><pre><code>[
+    "pesan kilat"
+]
+real    0m3.2s</code></pre></div>
+<p>Terminal 1 langsung menjawab begitu pesan datang, tidak perlu menunggu 20 detik penuh. Di AWS asli, long polling
+<b>menghemat biaya</b> karena jumlah request kosong jauh berkurang.</p>
+</div>
+
+<div class="step" data-id="dlq"><div class="step-head"><h3>Dead-Letter Queue</h3></div>
+<pre><code>aws sqs create-queue --queue-name pesanan-gagal
+DLQ_ARN=$(aws sqs get-queue-attributes \
+  --queue-url http://localhost:4566/000000000000/pesanan-gagal \
+  --attribute-names QueueArn --query Attributes.QueueArn --output text)
+
+aws sqs create-queue --queue-name pesanan-v2 --attributes "{
+  \"VisibilityTimeout\": \"1\",
+  \"RedrivePolicy\": \"{\\\"deadLetterTargetArn\\\":\\\"$DLQ_ARN\\\",\\\"maxReceiveCount\\\":\\\"2\\\"}\"
+}"
+Q2=http://localhost:4566/000000000000/pesanan-v2
+
+aws sqs send-message --queue-url $Q2 --message-body "pesanan beracun"
+for i in 1 2 3; do aws sqs receive-message --queue-url $Q2 --query 'Messages[].Body'; sleep 2; done
+
+aws sqs receive-message --queue-url http://localhost:4566/000000000000/pesanan-gagal --query 'Messages[].Body'</code></pre>
+<div class="out"><pre><code>[
+    "pesanan beracun"
+]
+[
+    "pesanan beracun"
+]
+null
+[
+    "pesanan beracun"
+]</code></pre></div>
+<p>Pesan diterima 2 kali tanpa dihapus (anggap konsumen selalu gagal). Pada percobaan ke-3, SQS memindahkannya ke
+<code>pesanan-gagal</code>. Tanpa DLQ, pesan "beracun" seperti ini akan berputar selamanya.</p>
+<div class="note"><strong>Tanda kutip berlapis</strong> memang merepotkan: <code>RedrivePolicy</code> adalah string JSON di dalam JSON.
+Di Python jauh lebih mudah: <code>Attributes={"RedrivePolicy": json.dumps({"deadLetterTargetArn": arn, "maxReceiveCount": "2"})}</code>.</div>
+</div>
+
+<h2>Kesalahan umum</h2>
+<div class="table-wrap"><table>
+<tr><th>Gejala</th><th>Penyebab</th></tr>
+<tr><td>Pesan diproses berkali-kali</td><td>Lupa <code>delete-message</code>, atau proses lebih lama daripada visibility timeout</td></tr>
+<tr><td><code>AWS.SimpleQueueService.NonExistentQueue</code></td><td>Queue URL salah, atau Floci sudah di-reset</td></tr>
+<tr><td><code>ReceiptHandleIsInvalid</code></td><td>Receipt handle salah salin atau berasal dari penerimaan lama</td></tr>
+<tr><td><code>QueueDeletedRecently</code></td><td>Membuat ulang antrean dengan nama yang baru saja dihapus. Tunggu sebentar (di AWS asli 60 detik).</td></tr>
+<tr><td>Receive selalu <code>null</code></td><td>Semua pesan sedang "in flight" (tak terlihat). Cek <code>ApproximateNumberOfMessagesNotVisible</code>.</td></tr>
+</table></div>
+
+<h2>Latihan mandiri</h2>
+<div class="exercise"><b>Latihan 1.</b> Kirim 5 pesan, terima 3 tanpa menghapus. Tampilkan jumlah pesan <i>terlihat</i> dan <i>tidak terlihat</i>.
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<pre><code>for i in 1 2 3 4 5; do aws sqs send-message --queue-url $Q --message-body "m$i" &gt;/dev/null; done
+aws sqs receive-message --queue-url $Q --max-number-of-messages 3 &gt;/dev/null
+aws sqs get-queue-attributes --queue-url $Q \
+  --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible</code></pre>
+<p>Hasilnya kira-kira 2 terlihat dan 3 tidak terlihat. Receive bisa mengembalikan kurang dari 3 pesan, jadi angkanya bisa sedikit berbeda.</p></details></div>
+<div class="exercise"><b>Latihan 2.</b> Buat antrean FIFO <code>urut.fifo</code>, kirim pesan A, B, C dengan <code>--message-group-id</code> yang sama, lalu terima. Apakah urutannya terjaga?
+<details class="answer"><summary>Lihat kunci jawaban</summary>
+<pre><code>aws sqs create-queue --queue-name urut.fifo --attributes FifoQueue=true,ContentBasedDeduplication=true
+F=http://localhost:4566/000000000000/urut.fifo
+for m in A B C; do aws sqs send-message --queue-url $F --message-body $m --message-group-id g1 &gt;/dev/null; done
+aws sqs receive-message --queue-url $F --max-number-of-messages 10 --query 'Messages[].Body'</code></pre>
+<p>Hasilnya <code>["A","B","C"]</code>. Dalam satu message group, FIFO menjamin urutan.
+<code>ContentBasedDeduplication</code> membuat pesan dengan isi sama dalam 5 menit dianggap duplikat.</p></details></div>
+
+<h2>Kuis</h2>
+<div class="quiz" data-answer="1"><div class="q">1. Konsumen menerima pesan lalu crash sebelum menghapusnya. Apa yang terjadi?</div>
+<button class="opt">Pesan hilang selamanya</button>
+<button class="opt">Setelah visibility timeout habis, pesan bisa diterima lagi</button>
+<button class="opt">SQS mengirim ulang pesan ke produser</button>
+<div class="why">Itulah gunanya visibility timeout: menjamin pesan tidak hilang ketika pemroses gagal.</div></div>
+<div class="quiz" data-answer="2"><div class="q">2. Apa yang dibutuhkan untuk menghapus pesan?</div>
+<button class="opt">MessageId</button>
+<button class="opt">Isi pesan</button>
+<button class="opt">ReceiptHandle dari penerimaan terakhir</button>
+<div class="why">Receipt handle membuktikan Anda yang sedang memegang pesan itu.</div></div>
+<div class="quiz" data-answer="0"><div class="q">3. Kenapa SQS dipakai di antara dua bagian aplikasi?</div>
+<button class="opt">Agar pengirim tidak perlu menunggu penerima, dan lonjakan beban bisa "ditampung"</button>
+<button class="opt">Agar data tersimpan permanen seperti database</button>
+<button class="opt">Agar pesan bisa dikirim ke banyak penerima sekaligus</button>
+<div class="why">SQS memisahkan (decouple) sistem. Untuk menyiarkan ke banyak penerima, pakai SNS (Modul 3). Pesan SQS default disimpan 4 hari, bukan permanen.</div></div>
+
+<h2>Di AWS asli, apa bedanya?</h2>
+<ul>
+  <li>Queue URL berbentuk <code>https://sqs.us-east-1.amazonaws.com/123456789012/pesanan</code>.</li>
+  <li>Biaya per juta request. Long polling dan batch (hingga 10 pesan) membuatnya jauh lebih murah.</li>
+  <li>Pesan disimpan default 4 hari, maksimal 14 hari.</li>
+</ul>
+
+<div class="pager"></div>
+</div></div></div>
+<script src="assets/common.js"></script>
+<script src="assets/flow.js"></script>
+<script src="assets/learn.js"></script>
+<script>
+FlowDiagram.mount(document.getElementById("anim"), {
+  title: "Kirim → terima → (gagal / hapus)",
+  width: 940, height: 330,
+  zones: [ { x: 230, y: 4, w: 420, h: 322, label: "Antrean SQS 'pesanan'" } ],
+  nodes: [
+    { id: "prod", x: 20, y: 40, w: 170, h: 60, label: "Produser", sub: "kasir / web", kind: "client", icon: "🧾" },
+    { id: "vis", x: 260, y: 40, w: 170, h: 60, label: "Terlihat", sub: "siap diambil", kind: "store", icon: "👁️" },
+    { id: "inv", x: 460, y: 40, w: 170, h: 60, label: "Tak terlihat", sub: "in flight · 30 dtk", kind: "filter", icon: "🙈" },
+    { id: "dlq", x: 360, y: 240, w: 190, h: 60, label: "DLQ", sub: "pesanan-gagal", kind: "ext", icon: "🪦" },
+    { id: "cons", x: 720, y: 40, w: 190, h: 60, label: "Konsumen", sub: "koki / worker", kind: "svc", icon: "👨‍🍳" },
+    { id: "done", x: 720, y: 160, w: 190, h: 56, label: "Dihapus", sub: "selesai", kind: "zone", icon: "✅" }
+  ],
+  steps: [
+    { from: "prod", to: "vis", tag: "SendMessage", title: "Pesan masuk", text: "Produser mengirim pesan lalu langsung lanjut bekerja, tanpa menunggu pesan diproses." },
+    { from: "cons", to: "vis", tag: "ReceiveMessage", title: "Konsumen bertanya", text: "Konsumen meminta pesan (sebaiknya dengan long polling)." },
+    { from: "vis", to: "inv", tag: "sembunyikan", title: "Pesan disembunyikan", text: "Pesan <b>tidak dihapus</b>, hanya tak terlihat selama visibility timeout. Hitungan penerimaan (receive count) naik 1." },
+    { from: "inv", to: "cons", tag: "Body + ReceiptHandle", title: "Pesan diberikan", text: "Konsumen mendapat isi pesan dan <i>receipt handle</i>." },
+    { from: "inv", to: "vis", tag: "timeout habis", title: "Skenario gagal", text: "Kalau konsumen crash dan tidak menghapus, setelah timeout pesan <b>kembali terlihat</b> dan dicoba lagi.", kind: "err" },
+    { from: "vis", to: "dlq", tag: "receive > max", title: "Terlalu sering gagal", text: "Jika antrean punya <code>RedrivePolicy</code> dan pesan sudah diterima lebih dari <code>maxReceiveCount</code> kali, SQS memindahkannya ke DLQ.", kind: "err" },
+    { from: "cons", to: "done", tag: "DeleteMessage", title: "Skenario sukses", text: "Setelah berhasil diproses, konsumen memanggil <code>DeleteMessage</code> dengan receipt handle. Pesan hilang permanen.", kind: "ok" }
+  ]
+});
+</script>
+</body>
+</html>
