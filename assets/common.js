@@ -16,6 +16,8 @@
     { f: "belajar-5.html", t: "Modul 5 · Lambda", i: "λ" },
     { f: "belajar-6.html", t: "Modul 6 · IAM", i: "🔑" },
     { f: "belajar-7.html", t: "Modul 7 · Proyek Akhir", i: "🏁" },
+    { g: "Tutorial AWS CLI" },
+    { url: "https://github.com/idsoke/floci-docs-id/blob/main/STEP-By_STEP/README.md", t: "Step by Step ↗", i: "🪜" },
     { g: "Cara Kerja" },
     { f: "arsitektur.html", t: "Arsitektur", i: "🏛️" },
     { f: "alur-request.html", t: "Alur Request", i: "🔀" },
@@ -53,7 +55,8 @@
       for (const p of PAGES) {
         if (p.g) { html += `<div class="nav-group">${p.g}</div>`; continue; }
         n++;
-        html += `<a href="${p.f}" class="${p.f === here ? "active" : ""}"><span class="num">${n}</span><span>${p.i}</span><span>${p.t}</span></a>`;
+        const target = p.url ? ` target="_blank" rel="noopener"` : "";
+        html += `<a href="${p.url || p.f}"${target} class="${p.f === here ? "active" : ""}"><span class="num">${n}</span><span>${p.i}</span><span>${p.t}</span></a>`;
       }
       html += `</nav><button class="theme-btn" type="button">🌓 Ganti tema</button>`;
       side.innerHTML = html;
